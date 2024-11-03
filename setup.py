@@ -1,0 +1,19 @@
+from setuptools import setup, find_packages
+
+setup(
+    name="stock-analysis-app",
+    version="0.1",
+    packages=find_packages(),
+    install_requires=[
+        'streamlit>=1.24.0',
+        'pandas>=2.0.0',
+        'numpy>=1.24.0',
+        'openai>=1.0.0',
+        'python-dotenv>=1.0.0',
+        'plotly>=5.14.0',
+        'yfinance>=0.2.18',
+        'ta>=0.10.2',
+        'bcrypt>=4.0.1',
+        'pyjwt>=2.8.0'
+    ],
+)
