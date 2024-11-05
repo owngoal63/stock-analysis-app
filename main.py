@@ -1,6 +1,6 @@
 """
 Main Streamlit application entry point.
-File: app/main.py
+File: main.py
 """
 
 import streamlit as st
