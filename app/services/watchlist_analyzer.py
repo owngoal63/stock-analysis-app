@@ -63,13 +63,17 @@ class WatchlistAnalyzer:
             self.logger.error(f"Error calculating trend strength: {str(e)}")
             return 0
         
-    def _analyze_macd_signal(self, price_data: pd.DataFrame, macd_data: Dict[str, pd.Series]) -> str:
+    def _analyze_macd_signal(self, 
+                        price_data: pd.DataFrame, 
+                        macd_data: Dict[str, pd.Series],
+                        params: Dict) -> str:
         """
-        Analyze MACD signals and return detailed recommendation
+        Analyze MACD signals and return detailed recommendation using custom parameters
         
         Args:
             price_data: DataFrame with price history
             macd_data: Dictionary containing MACD line, signal line and histogram
+            params: User's custom recommendation parameters
             
         Returns:
             str: 'Strong Buy', 'Buy', 'Neutral', 'Sell', or 'Strong Sell' recommendation
@@ -83,46 +87,38 @@ class WatchlistAnalyzer:
             
             # Calculate trend strength
             strength = self._calculate_trend_strength(price_data, macd_data)
+            hist_change = latest_hist - prev_hist
             
-            # Strong Buy conditions
-            if (latest_macd > latest_signal and          # MACD above signal line
-                latest_hist > 0 and                      # Positive histogram
-                latest_hist > prev_hist and              # Increasing histogram
-                strength > 0.5):                         # Strong positive trend
+            # Strong Buy: strength >= strong_buy threshold
+            if strength >= params['strong_buy']['trend_strength']:
                 return "Strong Buy"
             
-            # Buy conditions
-            elif (latest_macd > latest_signal and        # MACD above signal line
-                  latest_hist > 0 and                    # Positive histogram
-                  strength > 0):                         # Positive trend
+            # Buy: strength >= buy threshold (but < strong_buy threshold, implicitly)
+            if strength >= params['buy']['trend_strength']:
                 return "Buy"
             
-            # Strong Sell conditions
-            elif (latest_macd < latest_signal and        # MACD below signal line
-                  latest_hist < 0 and                    # Negative histogram
-                  latest_hist < prev_hist and            # Decreasing histogram
-                  strength < -0.5):                      # Strong negative trend
+            # Strong Sell: strength <= strong_sell threshold
+            if strength <= params['strong_sell']['trend_strength']:
                 return "Strong Sell"
             
-            # Sell conditions
-            elif (latest_macd < latest_signal and        # MACD below signal line
-                  latest_hist < 0 and                    # Negative histogram
-                  strength < 0):                         # Negative trend
+            # Sell: strength <= sell threshold (but > strong_sell threshold, implicitly)
+            if strength <= params['sell']['trend_strength']:
                 return "Sell"
             
-            # Neutral conditions
+            # Neutral: everything between buy and sell thresholds
             return "Neutral"
             
         except Exception as e:
             self.logger.error(f"Error analyzing MACD signal: {str(e)}")
             return "Neutral"
     
-    def analyze_watchlist(self, watchlist: List[str]) -> List[Dict]:
+    def analyze_watchlist(self, watchlist: List[str], user_params: Dict) -> List[Dict]:
         """
         Analyze all stocks in watchlist and generate detailed recommendations
         
         Args:
             watchlist: List of stock symbols
+            user_params: User's custom recommendation parameters
             
         Returns:
             List of dictionaries containing analysis results
@@ -149,8 +145,8 @@ class WatchlistAnalyzer:
                 # Calculate trend strength
                 strength = self._calculate_trend_strength(price_data, macd_data)
                 
-                # Generate recommendation
-                recommendation = self._analyze_macd_signal(price_data, macd_data)
+                # Generate recommendation using user's parameters
+                recommendation = self._analyze_macd_signal(price_data, macd_data, user_params)
                 
                 # Get latest MACD values
                 latest_macd = macd_data['macd_line'].iloc[-1]

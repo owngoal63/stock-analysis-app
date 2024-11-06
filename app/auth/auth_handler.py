@@ -187,6 +187,19 @@ class AuthHandler:
             st.error(f"Login error: {str(e)}")
             return None
 
+    def update_recommendation_params(self, user_id: str, params: Dict) -> bool:
+        """Update user's recommendation parameters"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute(
+                    "UPDATE users SET recommendation_params = ? WHERE id = ?",
+                    (str(params), user_id)
+                )
+                return True
+        except Exception as e:
+            self.logger.error(f"Error updating recommendation parameters: {str(e)}")
+            return False
+
     def get_current_user(self) -> Optional[User]:
         """Get currently authenticated user"""
         if 'auth_token' not in st.session_state:
@@ -210,8 +223,9 @@ class AuthHandler:
                         email=result[1],
                         created_at=datetime.fromisoformat(result[3]),
                         last_login=datetime.fromisoformat(result[4]) if result[4] else None,
-                        watchlist=eval(result[5]),
-                        preferences=eval(result[6])
+                        watchlist=eval(result[5]) if result[5] else [],
+                        preferences=eval(result[6]) if result[6] else {},
+                        recommendation_params=eval(result[7]) if result[7] else User.recommendation_params.default_factory()
                     )
                 return None
         except Exception as e:

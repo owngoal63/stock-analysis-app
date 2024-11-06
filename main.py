@@ -17,6 +17,7 @@ from app.pages.home import render_home_page
 from app.pages.watchlist import render_watchlist_page
 from app.pages.education import render_education_page
 from app.pages.debug import render_debug_page
+from app.pages.parameters import render_parameters_page
 from app.services.market_data import MarketDataService
 from app.services.technical_analysis import TechnicalAnalysisService
 from app.services.watchlist_analyzer import WatchlistAnalyzer
@@ -41,6 +42,11 @@ def display_analysis_results(results: list):
     if not results:
         st.info("No analysis results available.")
         return
+    
+    # Get current user's parameters
+    auth_handler = AuthHandler()
+    current_user = auth_handler.get_current_user()
+    params = current_user.recommendation_params
     
     # Filter out error results
     valid_results = [r for r in results if 'error' not in r]
@@ -74,6 +80,7 @@ def display_analysis_results(results: list):
     # Display Strong Buy recommendations
     with strong_buy_col:
         st.markdown("### 🟢 Strong Buy")
+        st.markdown(f"*Min Strength: {params['strong_buy']['trend_strength']}*")
         for stock in groups['Strong Buy']:
             with st.container():
                 st.markdown(
@@ -88,6 +95,7 @@ def display_analysis_results(results: list):
     # Display Buy recommendations
     with buy_col:
         st.markdown("### 🟢 Buy")
+        st.markdown(f"*Min Strength: {params['buy']['trend_strength']}*")
         for stock in groups['Buy']:
             with st.container():
                 st.markdown(
@@ -102,6 +110,7 @@ def display_analysis_results(results: list):
     # Display Neutral recommendations
     with neutral_col:
         st.markdown("### ⚪ Neutral")
+        st.markdown("*No threshold*")
         for stock in groups['Neutral']:
             with st.container():
                 st.markdown(
@@ -116,6 +125,7 @@ def display_analysis_results(results: list):
     # Display Sell recommendations
     with sell_col:
         st.markdown("### 🔴 Sell")
+        st.markdown(f"*Max Strength: {params['sell']['trend_strength']}*")
         for stock in groups['Sell']:
             with st.container():
                 st.markdown(
@@ -130,6 +140,7 @@ def display_analysis_results(results: list):
     # Display Strong Sell recommendations
     with strong_sell_col:
         st.markdown("### 🔴 Strong Sell")
+        st.markdown(f"*Max Strength: {params['strong_sell']['trend_strength']}*")
         for stock in groups['Strong Sell']:
             with st.container():
                 st.markdown(
@@ -141,34 +152,6 @@ def display_analysis_results(results: list):
                 )
                 st.markdown("---")
     
-    # Display detailed analysis expandable
-    with st.expander("View Detailed Analysis"):
-        for stock in sorted_results:
-            st.markdown(
-                f"""
-                ### {stock['symbol']} - {stock['recommendation']}
-                **Company:** {stock['company_name']}  
-                **Sector:** {stock['sector']}  
-                **Current Price:** ${stock['current_price']:.2f} ({stock['price_change_pct']:.1f}%)  
-                **Trend Strength:** {stock['trend_strength']:.2f}  
-                
-                **Technical Indicators:**
-                - MACD Line: {stock['macd_line']:.3f}
-                - Signal Line: {stock['signal_line']:.3f}
-                - Histogram: {stock['histogram']:.3f}
-                
-                **Analysis Date:** {stock['analysis_date']}
-                ---
-                """
-            )
-    
-    # Display any errors
-    error_stocks = [r for r in results if 'error' in r]
-    if error_stocks:
-        st.subheader("Analysis Errors")
-        for stock in error_stocks:
-            st.error(f"{stock['symbol']}: {stock['error']}")
-
 def analyze_watchlist_page():
     """Render the watchlist analysis page"""
     st.title("Watchlist Analysis")
@@ -185,7 +168,10 @@ def analyze_watchlist_page():
         return
         
     with st.spinner("Analyzing watchlist stocks..."):
-        analysis_results = watchlist_analyzer.analyze_watchlist(current_user.watchlist)
+        analysis_results = watchlist_analyzer.analyze_watchlist(
+            current_user.watchlist,
+            current_user.recommendation_params  # Pass the user's parameters
+        )
         display_analysis_results(analysis_results)
 
 def plot_stock_with_macd(price_data: pd.DataFrame, macd_data: Dict[str, pd.Series]):
@@ -386,6 +372,7 @@ def main():
         "Stock Analysis": "Stock Analysis",
         "Maintain Watchlist": "Maintain Watchlist",
         "Analyze Watchlist": "Analyze Watchlist",
+        "Parameters": "Parameters",
         "Education": "Education",
         "Debug": "Debug"
     }
@@ -416,6 +403,8 @@ def main():
         render_watchlist_page()
     elif st.session_state.current_page == "Analyze Watchlist":
         analyze_watchlist_page()
+    elif st.session_state.current_page == "Parameters": 
+        render_parameters_page()
     elif st.session_state.current_page == "Education":
         render_education_page()
     elif st.session_state.current_page == "Debug":
