@@ -21,140 +21,7 @@ def get_recommendation_color(recommendation: str) -> str:
     }
     return colors.get(recommendation, '#CCCCCC')
 
-def display_analysis_results(results: list):
-    """Display watchlist analysis results in a formatted table"""
-    st.subheader("Watchlist Analysis")
-    
-    if not results:
-        st.info("No analysis results available.")
-        return
-    
-    # Filter out error results
-    valid_results = [r for r in results if 'error' not in r]
-    
-    # Sort results by recommendation strength
-    recommendation_order = {
-        'Strong Buy': 0,
-        'Buy': 1,
-        'Neutral': 2,
-        'Sell': 3,
-        'Strong Sell': 4
-    }
-    
-    sorted_results = sorted(
-        valid_results,
-        key=lambda x: recommendation_order.get(x['recommendation'], 99)
-    )
-    
-    # Create columns for different recommendation levels
-    strong_buy_col, buy_col, neutral_col, sell_col, strong_sell_col = st.columns(5)
-    
-    # Group results by recommendation
-    groups = {
-        'Strong Buy': [r for r in sorted_results if r['recommendation'] == 'Strong Buy'],
-        'Buy': [r for r in sorted_results if r['recommendation'] == 'Buy'],
-        'Neutral': [r for r in sorted_results if r['recommendation'] == 'Neutral'],
-        'Sell': [r for r in sorted_results if r['recommendation'] == 'Sell'],
-        'Strong Sell': [r for r in sorted_results if r['recommendation'] == 'Strong Sell']
-    }
-    
-    # Display Strong Buy recommendations
-    with strong_buy_col:
-        st.markdown("### 🟢 Strong Buy")
-        for stock in groups['Strong Buy']:
-            with st.container():
-                st.markdown(
-                    f"""
-                    **{stock['symbol']}**  
-                    ${stock['current_price']:.2f} ({stock['price_change_pct']:.1f}%)  
-                    Strength: {stock['trend_strength']:.2f}
-                    """
-                )
-                st.markdown("---")
-    
-    # Display Buy recommendations
-    with buy_col:
-        st.markdown("### 🟢 Buy")
-        for stock in groups['Buy']:
-            with st.container():
-                st.markdown(
-                    f"""
-                    **{stock['symbol']}**  
-                    ${stock['current_price']:.2f} ({stock['price_change_pct']:.1f}%)  
-                    Strength: {stock['trend_strength']:.2f}
-                    """
-                )
-                st.markdown("---")
-    
-    # Display Neutral recommendations
-    with neutral_col:
-        st.markdown("### ⚪ Neutral")
-        for stock in groups['Neutral']:
-            with st.container():
-                st.markdown(
-                    f"""
-                    **{stock['symbol']}**  
-                    ${stock['current_price']:.2f} ({stock['price_change_pct']:.1f}%)  
-                    Strength: {stock['trend_strength']:.2f}
-                    """
-                )
-                st.markdown("---")
-    
-    # Display Sell recommendations
-    with sell_col:
-        st.markdown("### 🔴 Sell")
-        for stock in groups['Sell']:
-            with st.container():
-                st.markdown(
-                    f"""
-                    **{stock['symbol']}**  
-                    ${stock['current_price']:.2f} ({stock['price_change_pct']:.1f}%)  
-                    Strength: {stock['trend_strength']:.2f}
-                    """
-                )
-                st.markdown("---")
-    
-    # Display Strong Sell recommendations
-    with strong_sell_col:
-        st.markdown("### 🔴 Strong Sell")
-        for stock in groups['Strong Sell']:
-            with st.container():
-                st.markdown(
-                    f"""
-                    **{stock['symbol']}**  
-                    ${stock['current_price']:.2f} ({stock['price_change_pct']:.1f}%)  
-                    Strength: {stock['trend_strength']:.2f}
-                    """
-                )
-                st.markdown("---")
-    
-    # Display detailed analysis expandable
-    with st.expander("View Detailed Analysis"):
-        for stock in sorted_results:
-            st.markdown(
-                f"""
-                ### {stock['symbol']} - {stock['recommendation']}
-                **Company:** {stock['company_name']}  
-                **Sector:** {stock['sector']}  
-                **Current Price:** ${stock['current_price']:.2f} ({stock['price_change_pct']:.1f}%)  
-                **Trend Strength:** {stock['trend_strength']:.2f}  
-                
-                **Technical Indicators:**
-                - MACD Line: {stock['macd_line']:.3f}
-                - Signal Line: {stock['signal_line']:.3f}
-                - Histogram: {stock['histogram']:.3f}
-                
-                **Analysis Date:** {stock['analysis_date']}
-                ---
-                """
-            )
-    
-    # Display any errors
-    error_stocks = [r for r in results if 'error' in r]
-    if error_stocks:
-        st.subheader("Analysis Errors")
-        for stock in error_stocks:
-            st.error(f"{stock['symbol']}: {stock['error']}")
+
 
 def render_watchlist_page():
     """Render the watchlist management page"""
@@ -213,18 +80,6 @@ def render_watchlist_page():
         if not st.session_state.watchlist:
             st.info("Your watchlist is empty. Add some stocks above!")
         else:
-            # Add analysis button
-            if st.button("Analyze Watchlist"):
-                with st.spinner("Analyzing watchlist stocks..."):
-                    analysis_results = watchlist_analyzer.analyze_watchlist(
-                        st.session_state.watchlist
-                    )
-                    st.session_state.analysis_results = analysis_results
-                    
-            # Display analysis results if available
-            if 'analysis_results' in st.session_state:
-                display_analysis_results(st.session_state.analysis_results)
-                
             # Display watchlist table
             for symbol in st.session_state.watchlist:
                 col1, col2, col3 = st.columns([3, 2, 1])
@@ -243,9 +98,6 @@ def render_watchlist_page():
                             current_user.id,
                             st.session_state.watchlist
                         )
-                        # Clear analysis results when watchlist changes
-                        if 'analysis_results' in st.session_state:
-                            del st.session_state.analysis_results
                         st.success(f"Removed {symbol} from watchlist!")
                         st.rerun()
                         

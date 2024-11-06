@@ -19,6 +19,7 @@ from app.pages.education import render_education_page
 from app.pages.debug import render_debug_page
 from app.services.market_data import MarketDataService
 from app.services.technical_analysis import TechnicalAnalysisService
+from app.services.watchlist_analyzer import WatchlistAnalyzer
 from app.config import config
 
 # Configure logging
@@ -32,6 +33,160 @@ def init_services():
         MarketDataService(cache_dir=config.CACHE_DIR),
         TechnicalAnalysisService()
     )
+
+def display_analysis_results(results: list):
+    """Display watchlist analysis results in a formatted table"""
+    st.subheader("Watchlist Analysis")
+    
+    if not results:
+        st.info("No analysis results available.")
+        return
+    
+    # Filter out error results
+    valid_results = [r for r in results if 'error' not in r]
+    
+    # Sort results by recommendation strength
+    recommendation_order = {
+        'Strong Buy': 0,
+        'Buy': 1,
+        'Neutral': 2,
+        'Sell': 3,
+        'Strong Sell': 4
+    }
+    
+    sorted_results = sorted(
+        valid_results,
+        key=lambda x: recommendation_order.get(x['recommendation'], 99)
+    )
+    
+    # Create columns for different recommendation levels
+    strong_buy_col, buy_col, neutral_col, sell_col, strong_sell_col = st.columns(5)
+    
+    # Group results by recommendation
+    groups = {
+        'Strong Buy': [r for r in sorted_results if r['recommendation'] == 'Strong Buy'],
+        'Buy': [r for r in sorted_results if r['recommendation'] == 'Buy'],
+        'Neutral': [r for r in sorted_results if r['recommendation'] == 'Neutral'],
+        'Sell': [r for r in sorted_results if r['recommendation'] == 'Sell'],
+        'Strong Sell': [r for r in sorted_results if r['recommendation'] == 'Strong Sell']
+    }
+    
+    # Display Strong Buy recommendations
+    with strong_buy_col:
+        st.markdown("### 🟢 Strong Buy")
+        for stock in groups['Strong Buy']:
+            with st.container():
+                st.markdown(
+                    f"""
+                    **{stock['symbol']}**  
+                    ${stock['current_price']:.2f} ({stock['price_change_pct']:.1f}%)  
+                    Strength: {stock['trend_strength']:.2f}
+                    """
+                )
+                st.markdown("---")
+    
+    # Display Buy recommendations
+    with buy_col:
+        st.markdown("### 🟢 Buy")
+        for stock in groups['Buy']:
+            with st.container():
+                st.markdown(
+                    f"""
+                    **{stock['symbol']}**  
+                    ${stock['current_price']:.2f} ({stock['price_change_pct']:.1f}%)  
+                    Strength: {stock['trend_strength']:.2f}
+                    """
+                )
+                st.markdown("---")
+    
+    # Display Neutral recommendations
+    with neutral_col:
+        st.markdown("### ⚪ Neutral")
+        for stock in groups['Neutral']:
+            with st.container():
+                st.markdown(
+                    f"""
+                    **{stock['symbol']}**  
+                    ${stock['current_price']:.2f} ({stock['price_change_pct']:.1f}%)  
+                    Strength: {stock['trend_strength']:.2f}
+                    """
+                )
+                st.markdown("---")
+    
+    # Display Sell recommendations
+    with sell_col:
+        st.markdown("### 🔴 Sell")
+        for stock in groups['Sell']:
+            with st.container():
+                st.markdown(
+                    f"""
+                    **{stock['symbol']}**  
+                    ${stock['current_price']:.2f} ({stock['price_change_pct']:.1f}%)  
+                    Strength: {stock['trend_strength']:.2f}
+                    """
+                )
+                st.markdown("---")
+    
+    # Display Strong Sell recommendations
+    with strong_sell_col:
+        st.markdown("### 🔴 Strong Sell")
+        for stock in groups['Strong Sell']:
+            with st.container():
+                st.markdown(
+                    f"""
+                    **{stock['symbol']}**  
+                    ${stock['current_price']:.2f} ({stock['price_change_pct']:.1f}%)  
+                    Strength: {stock['trend_strength']:.2f}
+                    """
+                )
+                st.markdown("---")
+    
+    # Display detailed analysis expandable
+    with st.expander("View Detailed Analysis"):
+        for stock in sorted_results:
+            st.markdown(
+                f"""
+                ### {stock['symbol']} - {stock['recommendation']}
+                **Company:** {stock['company_name']}  
+                **Sector:** {stock['sector']}  
+                **Current Price:** ${stock['current_price']:.2f} ({stock['price_change_pct']:.1f}%)  
+                **Trend Strength:** {stock['trend_strength']:.2f}  
+                
+                **Technical Indicators:**
+                - MACD Line: {stock['macd_line']:.3f}
+                - Signal Line: {stock['signal_line']:.3f}
+                - Histogram: {stock['histogram']:.3f}
+                
+                **Analysis Date:** {stock['analysis_date']}
+                ---
+                """
+            )
+    
+    # Display any errors
+    error_stocks = [r for r in results if 'error' in r]
+    if error_stocks:
+        st.subheader("Analysis Errors")
+        for stock in error_stocks:
+            st.error(f"{stock['symbol']}: {stock['error']}")
+
+def analyze_watchlist_page():
+    """Render the watchlist analysis page"""
+    st.title("Watchlist Analysis")
+    
+    # Initialize services
+    market_data, technical_analysis = init_services()
+    watchlist_analyzer = WatchlistAnalyzer(market_data, technical_analysis)
+    auth_handler = AuthHandler()
+    
+    # Get current user and watchlist
+    current_user = auth_handler.get_current_user()
+    if not current_user or not current_user.watchlist:
+        st.info("Your watchlist is empty. Please add stocks in the Maintain Watchlist page.")
+        return
+        
+    with st.spinner("Analyzing watchlist stocks..."):
+        analysis_results = watchlist_analyzer.analyze_watchlist(current_user.watchlist)
+        display_analysis_results(analysis_results)
 
 def plot_stock_with_macd(price_data: pd.DataFrame, macd_data: Dict[str, pd.Series]):
     """Create a combined price and MACD plot"""
@@ -226,28 +381,27 @@ def main():
     if 'current_page' not in st.session_state:
         st.session_state.current_page = "Stock Analysis"
     
-    # Navigation links in sidebar
-    if st.sidebar.button("Stock Analysis"):
-        st.session_state.current_page = "Stock Analysis"
-        st.rerun()
-        
-    if st.sidebar.button("Watchlist"):
-        st.session_state.current_page = "Watchlist"
-        st.rerun()
-        
-    if st.sidebar.button("Education"):
-        st.session_state.current_page = "Education"
-        st.rerun()
-        
-    if st.sidebar.button("Debug"):
-        st.session_state.current_page = "Debug"
-        st.rerun()
+    # Navigation buttons in sidebar
+    pages = {
+        "Stock Analysis": "Stock Analysis",
+        "Maintain Watchlist": "Maintain Watchlist",
+        "Analyze Watchlist": "Analyze Watchlist",
+        "Education": "Education",
+        "Debug": "Debug"
+    }
+    
+    # Create a button for each page
+    for page_key, page_name in pages.items():
+        if st.sidebar.button(page_name):
+            st.session_state.current_page = page_key
+            st.rerun()
     
     # Dropdown navigation (will stay in sync with sidebar)
+    page_options = list(pages.keys())
     selected_page = st.sidebar.selectbox(
         "Quick Navigation",
-        ["Stock Analysis", "Watchlist", "Education", "Debug"],
-        index=["Stock Analysis", "Watchlist", "Education", "Debug"].index(st.session_state.current_page)
+        page_options,
+        index=page_options.index(st.session_state.current_page)
     )
     
     # Update current page if changed through dropdown
@@ -258,8 +412,10 @@ def main():
     # Render the current page
     if st.session_state.current_page == "Stock Analysis":
         render_stock_analysis()
-    elif st.session_state.current_page == "Watchlist":
+    elif st.session_state.current_page == "Maintain Watchlist":
         render_watchlist_page()
+    elif st.session_state.current_page == "Analyze Watchlist":
+        analyze_watchlist_page()
     elif st.session_state.current_page == "Education":
         render_education_page()
     elif st.session_state.current_page == "Debug":
