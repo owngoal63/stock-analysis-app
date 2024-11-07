@@ -18,6 +18,8 @@ from app.pages.watchlist import render_watchlist_page
 from app.pages.education import render_education_page
 from app.pages.debug import render_debug_page
 from app.pages.parameters import render_parameters_page
+from app.pages.simulation.parameters import render_simulation_parameters_page
+from app.pages.simulation.view import render_simulation_view
 from app.services.market_data import MarketDataService
 from app.services.technical_analysis import TechnicalAnalysisService
 from app.services.watchlist_analyzer import WatchlistAnalyzer
@@ -374,6 +376,8 @@ def main():
         "Analyze Watchlist": "Analyze Watchlist",
         "Parameters": "Parameters",
         "Education": "Education",
+        "Simulation Parameters": "Simulation Parameters",
+        "Run Simulation": "Portfolio Simulation",
         "Debug": "Debug"
     }
     
@@ -407,6 +411,10 @@ def main():
         render_parameters_page()
     elif st.session_state.current_page == "Education":
         render_education_page()
+    elif st.session_state.current_page == "Run Simulation":
+        render_simulation_view()
+    elif st.session_state.current_page == "Simulation Parameters":
+        render_simulation_parameters_page()  
     elif st.session_state.current_page == "Debug":
         render_debug_page()
 
