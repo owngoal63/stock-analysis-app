@@ -1,5 +1,5 @@
 """
-Login page component.
+Updated login page with case-insensitive email handling.
 File: app/pages/login.py
 """
 
@@ -23,7 +23,7 @@ def render_login_page():
     with tab1:
         st.subheader("Login")
         with st.form("login_form"):
-            email = st.text_input("Email")
+            email = st.text_input("Email").lower().strip()  # Convert to lowercase and trim whitespace
             password = st.text_input("Password", type="password")
             submit_button = st.form_submit_button("Login")
             
@@ -43,7 +43,7 @@ def render_login_page():
     with tab2:
         st.subheader("Register")
         with st.form("register_form"):
-            new_email = st.text_input("Email")
+            new_email = st.text_input("Email").lower().strip()  # Convert to lowercase and trim whitespace
             new_password = st.text_input("Password", type="password")
             confirm_password = st.text_input("Confirm Password", type="password")
             submit_button = st.form_submit_button("Register")
@@ -51,6 +51,8 @@ def render_login_page():
             if submit_button:
                 if not new_email or not new_password or not confirm_password:
                     st.error("Please fill in all fields")
+                elif not '@' in new_email:
+                    st.error("Please enter a valid email address")
                 elif new_password != confirm_password:
                     st.error("Passwords do not match")
                 elif len(new_password) < 8:

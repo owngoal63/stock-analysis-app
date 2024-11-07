@@ -99,16 +99,22 @@ class AuthHandler:
         Register a new user
         
         Args:
-            email: User's email address
+            email: User's email address (case insensitive)
             password: User's password
         
         Returns:
             bool: True if registration successful, False if email exists
         """
         try:
+            # Ensure email is lowercase
+            email = email.lower().strip()
+            
             with sqlite3.connect(self.db_path) as conn:
-                # Check if email exists
-                if conn.execute("SELECT 1 FROM users WHERE email = ?", (email,)).fetchone():
+                # Check if email exists (case insensitive check)
+                if conn.execute(
+                    "SELECT 1 FROM users WHERE LOWER(email) = LOWER(?)",
+                    (email,)
+                ).fetchone():
                     return False
                 
                 # Create new user
@@ -156,16 +162,19 @@ class AuthHandler:
         Authenticate user and return token
         
         Args:
-            email: User's email
+            email: User's email (case insensitive)
             password: User's password
         
         Returns:
             Optional[str]: JWT token if successful, None if authentication fails
         """
         try:
+            # Ensure email is lowercase
+            email = email.lower().strip()
+            
             with sqlite3.connect(self.db_path) as conn:
                 result = conn.execute(
-                    "SELECT id, password_hash FROM users WHERE email = ?",
+                    "SELECT id, password_hash FROM users WHERE LOWER(email) = LOWER(?)",
                     (email,)
                 ).fetchone()
                 
