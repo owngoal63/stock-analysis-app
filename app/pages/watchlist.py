@@ -10,19 +10,6 @@ from app.services.technical_analysis import TechnicalAnalysisService
 from app.services.watchlist_analyzer import WatchlistAnalyzer
 from app.auth.auth_handler import AuthHandler
 
-def get_recommendation_color(recommendation: str) -> str:
-    """Get color code for recommendation level"""
-    colors = {
-        'Strong Buy': '#00AA00',    # Dark Green
-        'Buy': '#88CC88',          # Light Green
-        'Neutral': '#CCCCCC',      # Gray
-        'Sell': '#CC8888',         # Light Red
-        'Strong Sell': '#AA0000'   # Dark Red
-    }
-    return colors.get(recommendation, '#CCCCCC')
-
-
-
 def render_watchlist_page():
     """Render the watchlist management page"""
     try:
@@ -43,6 +30,42 @@ def render_watchlist_page():
         # Initialize watchlist in session state if not present
         if 'watchlist' not in st.session_state:
             st.session_state.watchlist = current_user.watchlist or []
+
+        def add_stock(symbol: str):
+            """Handle adding a stock to watchlist"""
+            try:
+                if symbol:
+                    if symbol not in st.session_state.watchlist:
+                        # Verify stock exists by trying to get its price
+                        price = market_data.get_latest_price(symbol)
+                        st.session_state.watchlist.append(symbol)
+                        auth_handler.update_watchlist(
+                            current_user.id,
+                            st.session_state.watchlist
+                        )
+                        st.session_state.add_status = f"Added {symbol} to watchlist!"
+                    else:
+                        st.session_state.add_status = f"{symbol} is already in your watchlist!"
+                else:
+                    st.session_state.add_status = "Please enter a stock symbol"
+                
+                # Keep sidebar collapsed
+                st.session_state.nav_clicked = True
+                
+            except Exception as e:
+                st.session_state.add_status = f"Error adding stock: {str(e)}"
+                st.session_state.nav_clicked = True
+
+        def remove_stock(symbol: str):
+            """Handle removing a stock from watchlist"""
+            st.session_state.watchlist.remove(symbol)
+            auth_handler.update_watchlist(
+                current_user.id,
+                st.session_state.watchlist
+            )
+            st.session_state.remove_status = f"Removed {symbol} from watchlist!"
+            # Keep sidebar collapsed
+            st.session_state.nav_clicked = True
             
         # Add stock section
         with st.container():
@@ -55,25 +78,18 @@ def render_watchlist_page():
                     placeholder="e.g., AAPL"
                 ).upper()
             with col2:
-                if st.button("Add"):
-                    if new_stock:
-                        if new_stock not in st.session_state.watchlist:
-                            try:
-                                # Verify stock exists by trying to get its price
-                                price = market_data.get_latest_price(new_stock)
-                                st.session_state.watchlist.append(new_stock)
-                                auth_handler.update_watchlist(
-                                    current_user.id,
-                                    st.session_state.watchlist
-                                )
-                                st.success(f"Added {new_stock} to watchlist!")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Error adding stock: {str(e)}")
-                        else:
-                            st.warning(f"{new_stock} is already in your watchlist!")
-                    else:
-                        st.warning("Please enter a stock symbol")
+                if st.button("Add", key="add_button", on_click=add_stock, args=(new_stock,)):
+                    pass  # Logic handled in callback
+
+            # Display add status message if present
+            if 'add_status' in st.session_state:
+                if "Error" in st.session_state.add_status:
+                    st.error(st.session_state.add_status)
+                elif "already in" in st.session_state.add_status:
+                    st.warning(st.session_state.add_status)
+                else:
+                    st.success(st.session_state.add_status)
+                st.session_state.pop('add_status')
         
         # Display current watchlist
         st.subheader("Current Watchlist")
@@ -92,19 +108,20 @@ def render_watchlist_page():
                     except:
                         st.write("Price unavailable")
                 with col3:
-                    if st.button("Remove", key=f"remove_{symbol}"):
-                        st.session_state.watchlist.remove(symbol)
-                        auth_handler.update_watchlist(
-                            current_user.id,
-                            st.session_state.watchlist
-                        )
-                        st.success(f"Removed {symbol} from watchlist!")
-                        st.rerun()
+                    if st.button("Remove", key=f"remove_{symbol}", on_click=remove_stock, args=(symbol,)):
+                        pass  # Logic handled in callback
+
+            # Display remove status message if present
+            if 'remove_status' in st.session_state:
+                st.success(st.session_state.remove_status)
+                st.session_state.pop('remove_status')
                         
     except Exception as e:
         st.error(f"An error occurred: {str(e)}")
         st.write("Detailed error information:")
         st.exception(e)
+        # Keep sidebar collapsed even on error
+        st.session_state.nav_clicked = True
 
 if __name__ == "__main__":
     render_watchlist_page()

@@ -101,7 +101,7 @@ def create_transactions_table(transactions):
     records = []
     for t in transactions:
         records.append({
-            'Date': t.date.strftime('%d/%m/%Y'),  # Changed to British format
+            'Date': t.date.strftime('%d/%m/%Y'),
             'Symbol': t.symbol,
             'Type': t.transaction_type.value,
             'Signal': t.signal_type.value,
@@ -111,16 +111,9 @@ def create_transactions_table(transactions):
             'Total': f"£{t.total_amount:.2f}"
         })
     
-    # Create DataFrame and sort by date
     df = pd.DataFrame(records)
-    
-    # Convert Date column to datetime for proper sorting
     df['Date'] = pd.to_datetime(df['Date'], format='%d/%m/%Y')
-    
-    # Sort by date descending (most recent first)
     df = df.sort_values('Date', ascending=False)
-    
-    # Convert back to British format string
     df['Date'] = df['Date'].dt.strftime('%d/%m/%Y')
     
     return df
@@ -164,98 +157,114 @@ def render_simulation_view():
             st.write("Strong Sell:", f"{parameters.investment_rules['strong_sell_percent']}%")
             
         st.write("To modify these parameters, use the 'Portfolio Simulation Parameters' page.")
-    
-    # Run simulation button
-    if st.button("Run Simulation", type="primary"):
-        try:
-            with st.spinner("Running simulation..."):
-                # Create progress bar
-                progress_bar = st.progress(0)
-                
+
+    # NEW: Function to handle simulation execution with sidebar state
+    def run_simulation():
+        """Handle simulation execution and maintain sidebar state"""
+        with st.spinner("Running simulation..."):
+            try:
                 # Initialize simulation engine
                 engine = SimulationEngine(market_data, technical_analysis, parameters)
+                
+                # Create progress bar
+                progress_bar = st.progress(0)
                 
                 # Run simulation with progress updates
                 results = engine.run_simulation(
                     watchlist,
-                    progress_callback=progress_bar.progress
+                    progress_callback=lambda p: progress_bar.progress(p)
                 )
                 
                 if results:
-                    # Display summary metrics
-                    st.subheader("Summary Metrics")
-                    col1, col2, col3, col4 = st.columns(4)
-                    
-                    with col1:
-                        st.metric(
-                            "Total Return",
-                            format_currency(results.total_return),
-                            f"{results.total_return_percent:.1f}%"
-                        )
-                    
-                    with col2:
-                        st.metric(
-                            "Final Portfolio Value",
-                            format_currency(results.final_portfolio_value)
-                        )
-                    
-                    with col3:
-                        st.metric(
-                            "Maximum Drawdown",
-                            f"{results.max_drawdown:.1f}%"
-                        )
-                    
-                    with col4:
-                        st.metric(
-                            "Sharpe Ratio",
-                            f"{results.sharpe_ratio:.2f}"
-                        )
-                    
-                    # Display additional metrics
-                    col1, col2, col3 = st.columns(3)
-                    
-                    with col1:
-                        st.metric(
-                            "Number of Trades",
-                            results.number_of_trades
-                        )
-                    
-                    with col2:
-                        st.metric(
-                            "Win Rate",
-                            f"{results.win_rate:.1f}%"
-                        )
-                    
-                    with col3:
-                        st.metric(
-                            "Avg Holding Period",
-                            f"{results.avg_holding_period:.1f} days"
-                        )
-                    
-                    # Display portfolio chart
-                    st.plotly_chart(
-                        create_portfolio_chart(results),
-                        use_container_width=True
-                    )
-                    
-                    # Display transactions
-                    st.subheader("Transactions")
-                    transactions_df = create_transactions_table(results.transactions)
-                    if not transactions_df.empty:
-                        st.dataframe(
-                            transactions_df,
-                            hide_index=True,
-                            use_container_width=True
-                        )
-                    else:
-                        st.info("No transactions were executed during the simulation")
-                    
+                    # Store results in session state
+                    st.session_state.simulation_results = results
+                    # Keep sidebar collapsed
+                    st.session_state.nav_clicked = True
                 else:
                     st.error("Simulation failed. Please check the parameters and try again.")
+                    
+            except Exception as e:
+                st.error(f"Error running simulation: {str(e)}")
+                st.exception(e)
                 
-        except Exception as e:
-            st.error(f"Error running simulation: {str(e)}")
-            st.exception(e)
+            # Always keep sidebar collapsed
+            st.session_state.nav_clicked = True
+
+    # CHANGED: Run simulation button with on_click handler
+    if st.button("Run Simulation", type="primary", key="run_sim_button", on_click=run_simulation):
+        pass  # Logic handled in on_click function
+    
+    # Display results if available
+    if hasattr(st.session_state, 'simulation_results') and st.session_state.simulation_results:
+        results = st.session_state.simulation_results
+        
+        # Display summary metrics
+        st.subheader("Summary Metrics")
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric(
+                "Total Return",
+                format_currency(results.total_return),
+                f"{results.total_return_percent:.1f}%"
+            )
+        
+        with col2:
+            st.metric(
+                "Final Portfolio Value",
+                format_currency(results.final_portfolio_value)
+            )
+        
+        with col3:
+            st.metric(
+                "Maximum Drawdown",
+                f"{results.max_drawdown:.1f}%"
+            )
+        
+        with col4:
+            st.metric(
+                "Sharpe Ratio",
+                f"{results.sharpe_ratio:.2f}"
+            )
+        
+        # Display additional metrics
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric(
+                "Number of Trades",
+                results.number_of_trades
+            )
+        
+        with col2:
+            st.metric(
+                "Win Rate",
+                f"{results.win_rate:.1f}%"
+            )
+        
+        with col3:
+            st.metric(
+                "Avg Holding Period",
+                f"{results.avg_holding_period:.1f} days"
+            )
+        
+        # Display portfolio chart
+        st.plotly_chart(
+            create_portfolio_chart(results),
+            use_container_width=True
+        )
+        
+        # Display transactions
+        st.subheader("Transactions")
+        transactions_df = create_transactions_table(results.transactions)
+        if not transactions_df.empty:
+            st.dataframe(
+                transactions_df,
+                hide_index=True,
+                use_container_width=True
+            )
+        else:
+            st.info("No transactions were executed during the simulation")
 
 if __name__ == "__main__":
     render_simulation_view()

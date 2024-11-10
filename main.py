@@ -327,23 +327,22 @@ def render_stock_analysis():
 
 def main():
     """Main application entry point"""
+    # Initialize session state
+    if 'current_page' not in st.session_state:
+        st.session_state.current_page = "Stock Analysis"
+
+    # Set page config
     st.set_page_config(
         page_title="Stock Analysis App",
         page_icon="📈",
         layout="wide",
-        initial_sidebar_state="collapsed",
+        initial_sidebar_state="collapsed" if st.session_state.get('nav_clicked', False) else "expanded",
         menu_items={
             'Get Help': None,
             'Report a bug': None,
             'About': None
         }
     )
-
-    st.markdown("""
-        <style>
-            div[data-testid="stSidebarNav"] {display: none;}
-        </style>
-    """, unsafe_allow_html=True)
     
     # Initialize authentication
     auth_handler = AuthHandler()
@@ -365,10 +364,6 @@ def main():
         auth_handler.logout_user()
         st.rerun()
     
-    # Initialize page in session state if not present
-    if 'current_page' not in st.session_state:
-        st.session_state.current_page = "Stock Analysis"
-    
     # Navigation buttons in sidebar
     pages = {
         "Stock Analysis": "Stock Analysis",
@@ -383,11 +378,16 @@ def main():
     
     # Create a button for each page
     for page_key, page_name in pages.items():
-        if st.sidebar.button(page_name):
+        if st.sidebar.button(page_name, key=f"nav_{page_key}"):
             st.session_state.current_page = page_key
+            st.session_state.nav_clicked = True
             st.rerun()
     
-    # Dropdown navigation (will stay in sync with sidebar)
+    # Clear nav_clicked after page reload
+    if st.session_state.get('nav_clicked', False):
+        st.session_state.nav_clicked = False
+    
+    # Quick navigation dropdown
     page_options = list(pages.keys())
     selected_page = st.sidebar.selectbox(
         "Quick Navigation",
@@ -398,6 +398,7 @@ def main():
     # Update current page if changed through dropdown
     if selected_page != st.session_state.current_page:
         st.session_state.current_page = selected_page
+        st.session_state.nav_clicked = True
         st.rerun()
     
     # Render the current page
@@ -411,10 +412,10 @@ def main():
         render_parameters_page()
     elif st.session_state.current_page == "Education":
         render_education_page()
+    elif st.session_state.current_page == "Simulation Parameters":
+        render_simulation_parameters_page()
     elif st.session_state.current_page == "Run Simulation":
         render_simulation_view()
-    elif st.session_state.current_page == "Simulation Parameters":
-        render_simulation_parameters_page()  
     elif st.session_state.current_page == "Debug":
         render_debug_page()
 

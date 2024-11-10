@@ -26,7 +26,26 @@ def render_simulation_parameters_page():
         
     parameters = params_service.get_parameters(current_user.id)
     
-    # Create form for parameter editing
+    def handle_save(params):
+        """Handle save button click"""
+        if params_service.save_parameters(current_user.id, params):
+            st.session_state.save_status = "success"
+        else:
+            st.session_state.save_status = "error"
+        st.session_state.nav_clicked = True  # Keep sidebar collapsed
+    
+    def handle_reset():
+        """Handle reset button click"""
+        default_params = SimulationParameters.get_default(
+            start_date=datetime.combine(st.session_state.start_date, datetime.min.time())
+        )
+        if params_service.save_parameters(current_user.id, default_params):
+            st.session_state.save_status = "reset_success"
+        else:
+            st.session_state.save_status = "reset_error"
+        st.session_state.nav_clicked = True  # Keep sidebar collapsed
+
+    # Form for editing parameters
     with st.form("simulation_parameters"):
         st.subheader("Basic Settings")
         
@@ -38,17 +57,19 @@ def render_simulation_parameters_page():
                 value=parameters.start_date.date(),
                 max_value=datetime.now().date() - timedelta(days=1),
                 help="Select the start date for the simulation",
-                format="DD/MM/YYYY"  # Set British date format
+                format="DD/MM/YYYY",
+                key="start_date"
             )
         
         # Initial capital
         with col2:
             initial_capital = st.number_input(
-                "Initial Capital (£)",  # Changed to pounds symbol
+                "Initial Capital (£)",
                 value=parameters.initial_capital,
                 min_value=100.0,
                 step=1000.0,
-                help="Enter the initial capital for the simulation"
+                help="Enter the initial capital for the simulation",
+                key="initial_capital"
             )
         
         # Transaction fee
@@ -58,7 +79,8 @@ def render_simulation_parameters_page():
             min_value=0.0,
             max_value=100.0,
             step=0.01,
-            help="Fee applied to each buy/sell transaction"
+            help="Fee applied to each buy/sell transaction",
+            key="transaction_fee"
         )
         
         st.subheader("Investment Rules")
@@ -72,7 +94,8 @@ def render_simulation_parameters_page():
                 min_value=0.0,
                 max_value=100.0,
                 step=1.0,
-                help="Percentage of available cash to invest on Strong Buy signal"
+                help="Percentage of available cash to invest on Strong Buy signal",
+                key="strong_buy_pct"
             )
             
             buy_percent = st.number_input(
@@ -81,7 +104,8 @@ def render_simulation_parameters_page():
                 min_value=0.0,
                 max_value=100.0,
                 step=1.0,
-                help="Percentage of available cash to invest on Buy signal"
+                help="Percentage of available cash to invest on Buy signal",
+                key="buy_pct"
             )
         
         with col2:
@@ -91,7 +115,8 @@ def render_simulation_parameters_page():
                 min_value=0.0,
                 max_value=100.0,
                 step=1.0,
-                help="Percentage of position to sell on Sell signal"
+                help="Percentage of position to sell on Sell signal",
+                key="sell_pct"
             )
             
             strong_sell_percent = st.number_input(
@@ -100,7 +125,8 @@ def render_simulation_parameters_page():
                 min_value=0.0,
                 max_value=100.0,
                 step=1.0,
-                help="Percentage of position to sell on Strong Sell signal"
+                help="Percentage of position to sell on Strong Sell signal",
+                key="strong_sell_pct"
             )
         
         st.subheader("Position Management")
@@ -112,29 +138,19 @@ def render_simulation_parameters_page():
             min_value=0.0,
             max_value=100.0,
             step=1.0,
-            help="Maximum percentage of capital allowed in a single stock"
+            help="Maximum percentage of capital allowed in a single stock",
+            key="max_position"
         )
         
-        # Form submission
+        # Form submission buttons
         col1, col2 = st.columns(2)
         with col1:
-            reset = st.form_submit_button("Reset to Defaults")
-        with col2:
-            submit = st.form_submit_button("Save Parameters")
-        
-        if reset:
-            # Reset to default values with current date
-            default_params = SimulationParameters.get_default(
-                start_date=datetime.combine(start_date, datetime.min.time())
+            reset = st.form_submit_button(
+                "Reset to Defaults",
+                on_click=handle_reset
             )
-            if params_service.save_parameters(current_user.id, default_params):
-                st.success("Parameters reset to defaults!")
-                st.rerun()
-            else:
-                st.error("Error resetting parameters")
-        
-        if submit:
-            # Create new parameters instance
+        with col2:
+            # Create new parameters instance for validation
             new_params = SimulationParameters(
                 start_date=datetime.combine(start_date, datetime.min.time()),
                 initial_capital=initial_capital,
@@ -148,19 +164,25 @@ def render_simulation_parameters_page():
                 max_single_position_percent=max_position
             )
             
-            # Validate parameters
-            if not new_params.is_valid:
-                st.error(
-                    "Invalid parameters: " + 
-                    ", ".join(new_params.get_validation_errors())
-                )
-                return
-            
-            # Save parameters
-            if params_service.save_parameters(current_user.id, new_params):
-                st.success("Parameters saved successfully!")
-            else:
-                st.error("Error saving parameters")
+            submit = st.form_submit_button(
+                "Save Parameters",
+                on_click=handle_save,
+                args=(new_params,)
+            )
+
+    # Display status messages
+    if st.session_state.get('save_status') == 'success':
+        st.success("Parameters saved successfully!")
+        st.session_state.pop('save_status')
+    elif st.session_state.get('save_status') == 'error':
+        st.error("Error saving parameters")
+        st.session_state.pop('save_status')
+    elif st.session_state.get('save_status') == 'reset_success':
+        st.success("Parameters reset to defaults!")
+        st.session_state.pop('save_status')
+    elif st.session_state.get('save_status') == 'reset_error':
+        st.error("Error resetting parameters")
+        st.session_state.pop('save_status')
 
 if __name__ == "__main__":
     render_simulation_parameters_page()

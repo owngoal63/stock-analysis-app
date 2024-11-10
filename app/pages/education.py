@@ -7,6 +7,15 @@ import streamlit as st
 
 def render_education_page():
     """Render the education page with explanations of technical analysis concepts"""
+    # Initialize show_examples in session state if not present
+    if 'show_examples' not in st.session_state:
+        st.session_state.show_examples = False
+        
+    def toggle_examples():
+        st.session_state.show_examples = not st.session_state.show_examples
+        st.session_state.nav_clicked = True
+
+    """Render the education page with explanations of technical analysis concepts"""
     st.title("Learn Technical Analysis")
     
     # Introduction
@@ -150,6 +159,43 @@ def render_education_page():
     * Following financial news to understand market movements
     * Never investing more than you can afford to lose
     """)
+
+    # At the bottom of the page, for the "Show More Examples" button:
+    # if st.button("Show More Examples"):
+    #     # Set the same state that nav clicks use to keep sidebar collapsed
+    #     st.session_state.nav_clicked = True
+        
+    #     # Add more examples to session state
+    #     if 'show_examples' not in st.session_state:
+    #         st.session_state.show_examples = True
+    #     else:
+    #         st.session_state.show_examples = not st.session_state.show_examples
+            
+    #     st.rerun()
+
+    # Use on_click handler instead of direct button logic
+    st.button(
+        "Show More Examples" if not st.session_state.show_examples else "Hide Examples",
+        on_click=toggle_examples,
+        key="toggle_examples_button"  # Added unique key
+    )
+
+    # Show additional examples if enabled
+    if st.session_state.show_examples:
+        st.header("Additional Examples")
+        st.write("""
+        Here are some practical examples of MACD signals:
+
+        1. Strong Uptrend Example:
+           * MACD line clearly above signal line
+           * Histogram bars growing
+           * Both lines above zero line
+
+        2. Weak Trend Example:
+           * MACD and signal lines close together
+           * Small histogram bars
+           * Lines crossing frequently
+        """)
 
 if __name__ == "__main__":
     render_education_page()
