@@ -95,22 +95,13 @@ class AuthHandler:
             return None
 
     def register_user(self, email: str, password: str) -> bool:
-        """
-        Register a new user
-        
-        Args:
-            email: User's email address (case insensitive)
-            password: User's password
-        
-        Returns:
-            bool: True if registration successful, False if email exists
-        """
+        """Register a new user"""
         try:
             # Ensure email is lowercase
             email = email.lower().strip()
             
             with sqlite3.connect(self.db_path) as conn:
-                # Check if email exists (case insensitive check)
+                # Check if email exists
                 if conn.execute(
                     "SELECT 1 FROM users WHERE LOWER(email) = LOWER(?)",
                     (email,)
@@ -124,6 +115,28 @@ class AuthHandler:
                     created_at=datetime.now(),
                     watchlist=[],
                     preferences={},
+                    recommendation_params={
+                        'strong_buy': {
+                            'trend_strength': 0.5,
+                            'macd_threshold': 0,
+                            'histogram_change': 0
+                        },
+                        'buy': {
+                            'trend_strength': 0,
+                            'macd_threshold': 0,
+                            'histogram_change': 0
+                        },
+                        'sell': {
+                            'trend_strength': 0,
+                            'macd_threshold': 0,
+                            'histogram_change': 0
+                        },
+                        'strong_sell': {
+                            'trend_strength': -0.5,
+                            'macd_threshold': 0,
+                            'histogram_change': 0
+                        }
+                    },
                     last_login=None
                 )
                 
@@ -135,8 +148,8 @@ class AuthHandler:
                     conn.execute(
                         """
                         INSERT INTO users 
-                        (id, email, password_hash, created_at, watchlist, preferences)
-                        VALUES (?, ?, ?, ?, ?, ?)
+                        (id, email, password_hash, created_at, watchlist, preferences, recommendation_params)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             user.id,
@@ -144,7 +157,8 @@ class AuthHandler:
                             password_hash,
                             user.created_at.isoformat(),
                             '[]',  # Empty watchlist
-                            '{}'   # Empty preferences
+                            '{}',   # Empty preferences
+                            str(user.recommendation_params)  # Include recommendation params
                         )
                     )
                     return True

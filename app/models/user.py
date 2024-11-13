@@ -57,11 +57,38 @@ class User:
             except:
                 self.preferences = {}
                 
-        # Ensure recommendation_params is always a dict
+        # Ensure recommendation_params is always a dict with default values
+        default_params = {
+            'strong_buy': {
+                'trend_strength': 0.5,
+                'macd_threshold': 0,
+                'histogram_change': 0
+            },
+            'buy': {
+                'trend_strength': 0,
+                'macd_threshold': 0,
+                'histogram_change': 0
+            },
+            'sell': {
+                'trend_strength': 0,
+                'macd_threshold': 0,
+                'histogram_change': 0
+            },
+            'strong_sell': {
+                'trend_strength': -0.5,
+                'macd_threshold': 0,
+                'histogram_change': 0
+            }
+        }
+        
         if self.recommendation_params is None:
-            self.recommendation_params = self.__class__.recommendation_params.default_factory()
+            self.recommendation_params = default_params
         elif isinstance(self.recommendation_params, str):
             try:
                 self.recommendation_params = eval(self.recommendation_params)
             except:
-                self.recommendation_params = self.__class__.recommendation_params.default_factory()
+                self.recommendation_params = default_params
+        # Ensure all required keys exist
+        for key in default_params:
+            if key not in self.recommendation_params:
+                self.recommendation_params[key] = default_params[key]

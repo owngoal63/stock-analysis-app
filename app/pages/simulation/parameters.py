@@ -25,28 +25,33 @@ def render_simulation_parameters_page():
         return
         
     parameters = params_service.get_parameters(current_user.id)
-    
-    def handle_save(params):
-        """Handle save button click"""
-        if params_service.save_parameters(current_user.id, params):
-            st.session_state.save_status = "success"
-        else:
-            st.session_state.save_status = "error"
-        st.session_state.nav_clicked = True  # Keep sidebar collapsed
-    
-    def handle_reset():
-        """Handle reset button click"""
-        default_params = SimulationParameters.get_default(
-            start_date=datetime.combine(st.session_state.start_date, datetime.min.time())
+
+    def save_parameters():
+        """Handle parameter saving with sidebar state"""
+        new_params = SimulationParameters(
+            start_date=datetime.combine(st.session_state.start_date, datetime.min.time()),
+            initial_capital=st.session_state.initial_capital,
+            transaction_fee_percent=st.session_state.transaction_fee,
+            investment_rules={
+                'strong_buy_percent': st.session_state.strong_buy_pct,
+                'buy_percent': st.session_state.buy_pct,
+                'sell_percent': st.session_state.sell_pct,
+                'strong_sell_percent': st.session_state.strong_sell_pct
+            },
+            max_single_position_percent=st.session_state.max_position
         )
-        if params_service.save_parameters(current_user.id, default_params):
-            st.session_state.save_status = "reset_success"
-        else:
-            st.session_state.save_status = "reset_error"
-        st.session_state.nav_clicked = True  # Keep sidebar collapsed
+        
+        if not new_params.is_valid:
+            st.session_state.save_status = "validation_error"
+            st.session_state.validation_errors = new_params.get_validation_errors()
+            return
+
+        success = params_service.save_parameters(current_user.id, new_params)
+        st.session_state.nav_clicked = True
+        st.session_state.save_status = "success" if success else "error"
 
     # Form for editing parameters
-    with st.form("simulation_parameters"):
+    with st.form("simulation_parameters", clear_on_submit=False):
         st.subheader("Basic Settings")
         
         # Simulation period with British date format
@@ -142,47 +147,21 @@ def render_simulation_parameters_page():
             key="max_position"
         )
         
-        # Form submission buttons
-        col1, col2 = st.columns(2)
-        with col1:
-            reset = st.form_submit_button(
-                "Reset to Defaults",
-                on_click=handle_reset
-            )
-        with col2:
-            # Create new parameters instance for validation
-            new_params = SimulationParameters(
-                start_date=datetime.combine(start_date, datetime.min.time()),
-                initial_capital=initial_capital,
-                transaction_fee_percent=transaction_fee,
-                investment_rules={
-                    'strong_buy_percent': strong_buy_percent,
-                    'buy_percent': buy_percent,
-                    'sell_percent': sell_percent,
-                    'strong_sell_percent': strong_sell_percent
-                },
-                max_single_position_percent=max_position
-            )
-            
-            submit = st.form_submit_button(
-                "Save Parameters",
-                on_click=handle_save,
-                args=(new_params,)
-            )
-
-    # Display status messages
+        # Submit button with save handler
+        if st.form_submit_button("Save Parameters", on_click=save_parameters):
+            pass  # Logic handled in on_click handler
+    
+    # Display status messages after form submission
     if st.session_state.get('save_status') == 'success':
         st.success("Parameters saved successfully!")
         st.session_state.pop('save_status')
     elif st.session_state.get('save_status') == 'error':
         st.error("Error saving parameters")
         st.session_state.pop('save_status')
-    elif st.session_state.get('save_status') == 'reset_success':
-        st.success("Parameters reset to defaults!")
+    elif st.session_state.get('save_status') == 'validation_error':
+        st.error("Invalid parameters: " + ", ".join(st.session_state.validation_errors))
         st.session_state.pop('save_status')
-    elif st.session_state.get('save_status') == 'reset_error':
-        st.error("Error resetting parameters")
-        st.session_state.pop('save_status')
+        st.session_state.pop('validation_errors')
 
 if __name__ == "__main__":
     render_simulation_parameters_page()
