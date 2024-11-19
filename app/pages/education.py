@@ -93,6 +93,106 @@ def render_education_page():
     * Average Holding Period: How long you typically keep stocks before selling
     """)
 
+    st.header("Understanding the Trading Simulation")
+    
+    with st.expander("How Trading Decisions Are Made", expanded=True):
+        st.markdown("""
+        ### Trading Timeline and Price Usage
+        
+        The simulation follows realistic trading practices by using only information that would be available at the time of making a trading decision.
+        
+        #### Price Data Used For Trading
+        - **Trading Decisions**: Uses the previous day's closing price (t-1)
+        - **Trade Execution**: Executes at the previous day's closing price (t-1)
+        - **Portfolio Valuation**: Uses current day's closing price (t) to track portfolio value
+        
+        #### Why Use Yesterday's Closing Price?
+        1. **Realistic Trading**: In real trading, you can't use today's closing price because:
+           - You don't know today's closing price until after the market closes
+           - By then, you can't trade until the next day
+        2. **Available Information**: Yesterday's closing price represents the most recent complete data point available for decision making
+        3. **MACD Calculation**: Technical indicators like MACD are already based on historical price data
+        
+        #### Example Timeline:
+        ```
+        Monday Close: $100  →  Tuesday Morning: Make trading decision using $100
+                            →  Tuesday Close: $102  →  Update portfolio value using $102
+                                                   →  Wednesday Morning: Make trading decision using $102
+        ```
+        
+        ### Trading Decision Process
+        1. Each morning, the system:
+           - Takes yesterday's closing price
+           - Calculates technical indicators (MACD, etc.)
+           - Generates buy/sell signals
+           - Executes trades at yesterday's closing price
+        
+        2. Each evening, the system:
+           - Updates portfolio values using current day's closing price
+           - Records daily performance metrics
+           - Prepares for next day's trading decisions
+        
+        ### Portfolio Value Tracking
+        - Your portfolio value is always calculated using the most recent closing prices
+        - This means your position values will change with market movements
+        - Transaction history shows the actual prices used for trades
+        """)
+    
+    with st.expander("Portfolio Simulation Parameters"):
+        st.markdown("""
+        ### Understanding Simulation Parameters
+        
+        #### Initial Capital
+        - The starting amount of cash in your portfolio
+        - All position size calculations are based on this initial amount
+        
+        #### Transaction Fees
+        - Applied to both buy and sell transactions
+        - Calculated as a percentage of the transaction value
+        - Deducted from available cash on buys
+        - Deducted from proceeds on sells
+        
+        #### Investment Rules
+        1. **Strong Buy**: Invests a larger percentage of available cash
+        2. **Buy**: Invests a moderate percentage of available cash
+        3. **Sell**: Sells a portion of the existing position
+        4. **Strong Sell**: Sells a larger portion or entire position
+        
+        #### Position Size Limits
+        - Maximum position size as a percentage of total portfolio value
+        - Helps maintain diversification
+        - Prevents overconcentration in any single stock
+        """)
+    
+    with st.expander("Common Questions"):
+        st.markdown("""
+        ### Frequently Asked Questions
+        
+        **Q: Why might my trade not execute at today's price?**  
+        A: The simulation uses yesterday's closing price for trades to maintain realism. You can't trade at today's closing price because you don't know it until after markets close.
+        
+        **Q: Why does my portfolio value change even when I haven't traded?**  
+        A: Portfolio value is updated using current market prices, even though trades execute at previous day's prices. This reflects real market movements.
+        
+        **Q: How are position sizes calculated?**  
+        A: Position sizes are calculated based on:
+        - Your available cash
+        - The investment rule percentages
+        - The maximum position size limit
+        - The previous day's closing price
+        
+        **Q: How accurate is this compared to real trading?**  
+        A: The simulation aims for realism by:
+        - Using only historically available information
+        - Including transaction fees
+        - Enforcing realistic trading rules
+        - However, it doesn't account for factors like:
+          - Bid-ask spreads
+          - Market impact
+          - Partial fills
+          - Intraday price movements
+        """)
+
     # Glossary
     st.header("Glossary of Terms")
     terms = {

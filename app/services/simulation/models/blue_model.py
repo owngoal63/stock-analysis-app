@@ -189,20 +189,42 @@ class BlueModel:
             self.logger.error(f"Error executing transaction: {str(e)}")
             return None
     
+    def update_position_values(self, prices: Dict[str, float]) -> None:
+        """
+        Update all position values with latest prices
+        
+        Args:
+            prices: Dictionary mapping symbols to their current prices
+        """
+        for symbol, position in self.positions.items():
+            if symbol in prices:
+                position.last_price = prices[symbol]  # Update the last price to current day's price
+
     def _create_snapshot(self, date: datetime, daily_transactions: List[Transaction]) -> None:
-        """Create daily portfolio snapshot"""
+        """Create daily portfolio snapshot using current day's prices"""
+        # Create a deep copy of positions to avoid reference issues
+        current_positions = {}
+        for symbol, pos in self.positions.items():
+            current_positions[symbol] = Position(
+                symbol=pos.symbol,
+                shares=pos.shares,
+                average_price=pos.average_price,
+                last_price=pos.last_price  # This should be current day's price
+            )
+
         snapshot = PortfolioSnapshot(
             date=date,
             cash=self.cash,
-            positions=self.positions.copy(),
+            positions=current_positions,
             daily_transactions=daily_transactions
         )
         self.snapshots.append(snapshot)
-    
+
     def get_total_portfolio_value(self) -> float:
-        """Get current total portfolio value"""
-        return self.cash + sum(p.market_value for p in self.positions.values())
-    
+        """Get current total portfolio value using current day's prices"""
+        position_values = sum(p.market_value for p in self.positions.values())  # market_value uses last_price
+        return self.cash + position_values
+
     def process_signals(
         self,
         date: datetime,
@@ -215,11 +237,14 @@ class BlueModel:
         Args:
             date: Current date
             signals: Dictionary of stock symbols to signal types
-            prices: Dictionary of stock symbols to prices
+            prices: Dictionary of stock symbols to current day's prices
             
         Returns:
             List[Transaction]: List of executed transactions
         """
+        # First, update all position values with latest prices
+        self.update_position_values(prices)
+        
         daily_transactions = []
         
         # Process sells first
@@ -247,12 +272,7 @@ class BlueModel:
                 if transaction:
                     daily_transactions.append(transaction)
         
-        # Update positions with latest prices
-        for symbol, price in prices.items():
-            if symbol in self.positions:
-                self.positions[symbol].last_price = price
-        
-        # Create daily snapshot
+        # Create daily snapshot with current prices
         self._create_snapshot(date, daily_transactions)
         
         return daily_transactions

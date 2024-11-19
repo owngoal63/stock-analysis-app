@@ -31,11 +31,34 @@ def create_portfolio_chart(results):
         vertical_spacing=0.12
     )
     
+    # Add initial capital point to the data
+    initial_date = results.portfolio_values.index[0] - pd.Timedelta(days=1)
+    
+    portfolio_values = pd.concat([
+        pd.Series({initial_date: results.initial_capital}),
+        results.portfolio_values
+    ])
+    
+    cash_values = pd.concat([
+        pd.Series({initial_date: results.initial_capital}),
+        results.cash_values
+    ])
+    
+    positions_values = pd.concat([
+        pd.Series({initial_date: 0.0}),
+        results.positions_values
+    ])
+    
+    daily_returns = pd.concat([
+        pd.Series({initial_date: 0.0}),
+        results.daily_returns
+    ])
+    
     # Portfolio value line
     fig.add_trace(
         go.Scatter(
-            x=results.portfolio_values.index,
-            y=results.portfolio_values.values,
+            x=portfolio_values.index,
+            y=portfolio_values.values,
             name="Total Value",
             line=dict(color="darkblue", width=2)
         ),
@@ -45,8 +68,8 @@ def create_portfolio_chart(results):
     # Add daily returns on secondary y-axis
     fig.add_trace(
         go.Scatter(
-            x=results.daily_returns.index,
-            y=results.daily_returns.values * 100,
+            x=daily_returns.index,
+            y=daily_returns.values * 100,
             name="Daily Returns %",
             line=dict(color="gray", width=1),
             opacity=0.5
@@ -58,8 +81,8 @@ def create_portfolio_chart(results):
     # Asset allocation stacked area
     fig.add_trace(
         go.Scatter(
-            x=results.cash_values.index,
-            y=results.cash_values.values,
+            x=cash_values.index,
+            y=cash_values.values,
             name="Cash",
             fill='tozeroy',
             line=dict(color="lightgreen")
@@ -69,8 +92,8 @@ def create_portfolio_chart(results):
     
     fig.add_trace(
         go.Scatter(
-            x=results.positions_values.index,
-            y=results.positions_values.values,
+            x=positions_values.index,
+            y=positions_values.values,
             name="Positions",
             fill='tonexty',
             line=dict(color="lightblue")
@@ -93,13 +116,50 @@ def create_portfolio_chart(results):
     
     return fig
 
-def create_transactions_table(transactions):
-    """Create formatted transactions table with British date format"""
+def create_transactions_table(transactions, initial_capital: float):
+    """Create formatted transactions table with running totals"""
     if not transactions:
         return pd.DataFrame()
         
     records = []
-    for t in transactions:
+    running_investments = {}  # Track positions: {symbol: {'shares': count, 'price': current_price}}
+    available_capital = initial_capital
+    
+    # Sort transactions chronologically
+    sorted_transactions = sorted(transactions, key=lambda x: x.date)
+    
+    for t in sorted_transactions:
+        if t.transaction_type == TransactionType.BUY:
+            shares_cost = t.shares * t.price
+            fees = t.fees
+            available_capital = available_capital - shares_cost - fees
+            transaction_total = shares_cost + fees
+            
+            # Update position for bought stock
+            if t.symbol not in running_investments:
+                running_investments[t.symbol] = {'shares': 0, 'price': t.price}
+            running_investments[t.symbol]['shares'] += t.shares
+            running_investments[t.symbol]['price'] = t.price  # Update to current price
+            
+        else:  # SELL
+            sale_proceeds = t.shares * t.price
+            fees = t.fees
+            available_capital = available_capital + (sale_proceeds - fees)
+            transaction_total = sale_proceeds - fees
+            
+            # Update position for sold stock
+            if t.symbol in running_investments:
+                running_investments[t.symbol]['shares'] -= t.shares
+                running_investments[t.symbol]['price'] = t.price  # Update to current price
+                if running_investments[t.symbol]['shares'] <= 0:
+                    del running_investments[t.symbol]
+        
+        # Calculate current investment value by summing value of all current positions
+        current_investment_value = sum(
+            pos['shares'] * pos['price']
+            for pos in running_investments.values()
+        )
+        
         records.append({
             'Date': t.date.strftime('%d/%m/%Y'),
             'Symbol': t.symbol,
@@ -108,15 +168,20 @@ def create_transactions_table(transactions):
             'Shares': t.shares,
             'Price': f"£{t.price:.2f}",
             'Fees': f"£{t.fees:.2f}",
-            'Total': f"£{t.total_amount:.2f}"
+            'Total': f"£{transaction_total:.2f}",
+            'Available Capital': f"£{available_capital:.2f}",
+            'Investment Value': f"£{current_investment_value:.2f}",
+            'Portfolio Total': f"£{(available_capital + current_investment_value):.2f}"
         })
     
     df = pd.DataFrame(records)
     df['Date'] = pd.to_datetime(df['Date'], format='%d/%m/%Y')
-    df = df.sort_values('Date', ascending=False)
+    df = df.sort_values('Date', ascending=True)
     df['Date'] = df['Date'].dt.strftime('%d/%m/%Y')
     
     return df
+
+
 
 def render_simulation_view():
     """Render the simulation view page"""
@@ -256,7 +321,10 @@ def render_simulation_view():
         
         # Display transactions
         st.subheader("Transactions")
-        transactions_df = create_transactions_table(results.transactions)
+        transactions_df = create_transactions_table(
+            results.transactions,
+            results.initial_capital
+        )
         if not transactions_df.empty:
             st.dataframe(
                 transactions_df,

@@ -5,8 +5,9 @@ File: app/services/simulation/simulation_engine.py
 
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Callable
 import pandas as pd
+import numpy as np
 from dataclasses import dataclass
 
 from app.services.market_data import MarketDataService
@@ -44,109 +45,90 @@ class SimulationEngine:
         technical_analysis: TechnicalAnalysisService,
         parameters: SimulationParameters
     ):
-        """
-        Initialize simulation engine
-        
-        Args:
-            market_data: Market data service instance
-            technical_analysis: Technical analysis service instance
-            parameters: Simulation parameters
-        """
         self.market_data = market_data
         self.technical_analysis = technical_analysis
         self.parameters = parameters
         self.logger = logging.getLogger(__name__)
-        
-        # Initialize simulation model
         self.model = BlueModel(parameters, market_data, technical_analysis)
 
-    def _generate_signals(
+    def _generate_signals_and_prices(
         self,
         symbols: List[str],
-        date: datetime
-    ) -> Dict[str, Tuple[SignalType, float]]:
+        date: datetime,
+        lookback_days: int = 60
+    ) -> Tuple[Dict[str, SignalType], Dict[str, float]]:
         """
-        Generate trading signals for given symbols on specified date
+        Generate signals and get prices for all symbols
         
         Args:
             symbols: List of stock symbols
-            date: Date to generate signals for
+            date: Current date
+            lookback_days: Number of days for MACD calculation
             
         Returns:
-            Dict mapping symbols to tuples of (signal_type, price)
+            Tuple of (signals dict, prices dict)
         """
         signals = {}
+        prices = {}
+        lookback = date - timedelta(days=lookback_days)
         
         for symbol in symbols:
             try:
-                # Get historical data up to date
-                lookback = date - timedelta(days=60)  # 60 days for MACD calculation
+                # Get historical data
                 price_data, _ = self.market_data.get_stock_data(
                     symbol,
                     lookback,
                     date
                 )
                 
-                # Skip if not enough data
                 if len(price_data) < 30:  # Minimum required for MACD
                     continue
                 
                 # Calculate MACD
                 macd_data = self.technical_analysis.calculate_macd(price_data)
                 
-                # Get latest price
+                # Get latest price and store it
                 latest_price = price_data['close'].iloc[-1]
+                prices[symbol] = latest_price
                 
-                # Get latest MACD values
+                # Generate signal
                 macd = macd_data['macd_line'].iloc[-1]
                 signal = macd_data['signal_line'].iloc[-1]
                 hist = macd_data['histogram'].iloc[-1]
                 prev_hist = macd_data['histogram'].iloc[-2]
                 
-                # Determine signal type based on MACD analysis
                 signal_strength = abs(macd - signal)
                 hist_change = hist - prev_hist
                 
                 if hist > 0 and hist_change > 0 and macd > signal:
-                    if signal_strength >= 0.5:  # Strong positive divergence
-                        signal_type = SignalType.STRONG_BUY
+                    if signal_strength >= 0.5:
+                        signals[symbol] = SignalType.STRONG_BUY
                     else:
-                        signal_type = SignalType.BUY
+                        signals[symbol] = SignalType.BUY
                 elif hist < 0 and hist_change < 0 and macd < signal:
-                    if signal_strength >= 0.5:  # Strong negative divergence
-                        signal_type = SignalType.STRONG_SELL
+                    if signal_strength >= 0.5:
+                        signals[symbol] = SignalType.STRONG_SELL
                     else:
-                        signal_type = SignalType.SELL
+                        signals[symbol] = SignalType.SELL
                 else:
-                    signal_type = SignalType.NEUTRAL
-                
-                signals[symbol] = (signal_type, latest_price)
-                
+                    signals[symbol] = SignalType.NEUTRAL
+                    
             except Exception as e:
-                self.logger.error(f"Error generating signal for {symbol}: {str(e)}")
+                self.logger.error(f"Error processing {symbol}: {str(e)}")
                 continue
-        
-        return signals
+                
+        return signals, prices
 
     def _calculate_metrics(
         self,
         snapshots: List[PortfolioSnapshot],
         risk_free_rate: float = 0.02
     ) -> SimulationResults:
-        """
-        Calculate performance metrics from simulation results
-        
-        Args:
-            snapshots: List of daily portfolio snapshots
-            risk_free_rate: Annual risk-free rate for Sharpe ratio
-            
-        Returns:
-            SimulationResults instance with calculated metrics
-        """
-        # Extract daily values
+        """Calculate performance metrics from simulation results"""
+        # Extract daily values using current day's prices
         dates = [s.date for s in snapshots]
         portfolio_values = pd.Series(
-            [s.total_value for s in snapshots],
+            [s.total_value for s in snapshots],  # total_value uses current prices
             index=dates
         )
         cash_values = pd.Series(
@@ -154,18 +136,16 @@ class SimulationEngine:
             index=dates
         )
         positions_values = pd.Series(
-            [s.total_invested for s in snapshots],
+            [s.total_invested for s in snapshots],  # total_invested uses current prices
             index=dates
         )
         
-        # Calculate daily returns
+        # Calculate daily returns using current day's values
         daily_returns = portfolio_values.pct_change().fillna(0)
         
         # Calculate metrics
-        initial_value = portfolio_values.iloc[0]
-        final_value = portfolio_values.iloc[-1]
-        total_return = final_value - initial_value
-        total_return_pct = (total_return / initial_value) * 100
+        total_return = portfolio_values.iloc[-1] - self.parameters.initial_capital
+        total_return_pct = (total_return / self.parameters.initial_capital) * 100
         
         # Calculate maximum drawdown
         rolling_max = portfolio_values.expanding().max()
@@ -173,40 +153,56 @@ class SimulationEngine:
         max_drawdown = abs(drawdowns.min()) * 100
         
         # Get all transactions
-        transactions = [
-            t for s in snapshots for t in s.daily_transactions
-        ]
+        transactions = [t for s in snapshots for t in s.daily_transactions]
         
-        # Calculate win rate
-        closed_positions = [
-            t for t in transactions
-            if t.transaction_type == TransactionType.SELL
-        ]
-        winning_trades = len([
-            t for t in closed_positions
-            if t.total_amount > 0  # Profitable trade
-        ])
-        win_rate = (
-            winning_trades / len(closed_positions)
-            if closed_positions else 0
-        ) * 100
-        
-        # Calculate average holding period
-        holding_periods = []
+        # Calculate win rate and holding periods
+        completed_trades = []
         position_start_dates = {}
         
         for t in transactions:
             if t.transaction_type == TransactionType.BUY:
-                position_start_dates[t.symbol] = t.date
-            elif t.transaction_type == TransactionType.SELL:
-                if t.symbol in position_start_dates:
-                    start_date = position_start_dates[t.symbol]
-                    holding_period = (t.date - start_date).days
-                    holding_periods.append(holding_period)
+                if t.symbol not in position_start_dates:
+                    position_start_dates[t.symbol] = []
+                position_start_dates[t.symbol].append({
+                    'date': t.date,
+                    'price': t.price,
+                    'shares': t.shares,
+                    'fees': t.fees
+                })
+            elif t.transaction_type == TransactionType.SELL and t.symbol in position_start_dates:
+                # Match FIFO for completed trades
+                while position_start_dates[t.symbol] and t.shares > 0:
+                    buy_position = position_start_dates[t.symbol][0]
+                    shares_to_sell = min(buy_position['shares'], t.shares)
+                    
+                    # Calculate profit/loss for this part of the position
+                    buy_cost = shares_to_sell * buy_position['price'] + (buy_position['fees'] * shares_to_sell / buy_position['shares'])
+                    sell_proceeds = shares_to_sell * t.price - (t.fees * shares_to_sell / t.shares)
+                    profit = sell_proceeds - buy_cost
+                    
+                    completed_trades.append({
+                        'profit': profit,
+                        'holding_period': (t.date - buy_position['date']).days
+                    })
+                    
+                    # Update remaining shares
+                    t.shares -= shares_to_sell
+                    buy_position['shares'] -= shares_to_sell
+                    
+                    if buy_position['shares'] == 0:
+                        position_start_dates[t.symbol].pop(0)
+                    
+                if not position_start_dates[t.symbol]:
+                    del position_start_dates[t.symbol]
         
+        # Calculate win rate
+        winning_trades = len([t for t in completed_trades if t['profit'] > 0])
+        win_rate = (winning_trades / len(completed_trades) * 100) if completed_trades else 0
+        
+        # Calculate average holding period
         avg_holding_period = (
-            sum(holding_periods) / len(holding_periods)
-            if holding_periods else 0
+            sum(t['holding_period'] for t in completed_trades) / len(completed_trades)
+            if completed_trades else 0
         )
         
         # Calculate Sharpe ratio
@@ -219,8 +215,8 @@ class SimulationEngine:
         )
         
         return SimulationResults(
-            initial_capital=initial_value,
-            final_portfolio_value=final_value,
+            initial_capital=self.parameters.initial_capital,
+            final_portfolio_value=portfolio_values.iloc[-1],
             total_return=total_return,
             total_return_percent=total_return_pct,
             max_drawdown=max_drawdown,
@@ -238,18 +234,8 @@ class SimulationEngine:
     def run_simulation(
         self,
         watchlist: List[str],
-        progress_callback=None
+        progress_callback: Optional[Callable[[float], None]] = None
     ) -> Optional[SimulationResults]:
-        """
-        Run portfolio simulation
-        
-        Args:
-            watchlist: List of stock symbols to trade
-            progress_callback: Optional callback for progress updates
-            
-        Returns:
-            SimulationResults if successful, None if error
-        """
         try:
             # Validate parameters
             if not self.parameters.is_valid:
@@ -268,28 +254,25 @@ class SimulationEngine:
             while current_date <= end_date:
                 # Update progress
                 if progress_callback:
-                    progress = days_processed / total_days
+                    progress = min(days_processed / total_days, 1.0)
                     progress_callback(progress)
                 
-                # Generate signals for watchlist stocks
-                signals = self._generate_signals(watchlist, current_date)
+                # Generate signals and get current prices
+                signals, prices = self._generate_signals_and_prices(watchlist, current_date)
                 
-                # Convert signals to format expected by model
-                signal_dict = {
-                    symbol: signal_data[0]
-                    for symbol, signal_data in signals.items()
-                }
-                price_dict = {
-                    symbol: signal_data[1]
-                    for symbol, signal_data in signals.items()
-                }
+                # Even if no trades, update position values with current prices
+                self.model.update_position_values(prices)
                 
-                # Process signals through model
-                self.model.process_signals(
-                    current_date,
-                    signal_dict,
-                    price_dict
-                )
+                # Process any trading signals
+                if signals:
+                    self.model.process_signals(
+                        current_date,
+                        signals,
+                        prices
+                    )
+                else:
+                    # Create a snapshot even if no trades to track daily portfolio value
+                    self.model._create_snapshot(current_date, [])
                 
                 # Move to next day
                 current_date += timedelta(days=1)
@@ -306,4 +289,4 @@ class SimulationEngine:
             
         except Exception as e:
             self.logger.error(f"Simulation error: {str(e)}")
-            return None
+            raise
