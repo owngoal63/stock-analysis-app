@@ -124,112 +124,160 @@ class SimulationEngine:
         snapshots: List[PortfolioSnapshot],
         risk_free_rate: float = 0.02
     ) -> SimulationResults:
-        """Calculate performance metrics from simulation results"""
-        # Extract daily values using current day's prices
-        dates = [s.date for s in snapshots]
-        portfolio_values = pd.Series(
-            [s.total_value for s in snapshots],  # total_value uses current prices
-            index=dates
-        )
-        cash_values = pd.Series(
-            [s.cash for s in snapshots],
-            index=dates
-        )
-        positions_values = pd.Series(
-            [s.total_invested for s in snapshots],  # total_invested uses current prices
-            index=dates
-        )
-        
-        # Calculate daily returns using current day's values
-        daily_returns = portfolio_values.pct_change().fillna(0)
-        
-        # Calculate metrics
-        total_return = portfolio_values.iloc[-1] - self.parameters.initial_capital
-        total_return_pct = (total_return / self.parameters.initial_capital) * 100
-        
-        # Calculate maximum drawdown
-        rolling_max = portfolio_values.expanding().max()
-        drawdowns = (portfolio_values - rolling_max) / rolling_max
-        max_drawdown = abs(drawdowns.min()) * 100
-        
-        # Get all transactions
-        transactions = [t for s in snapshots for t in s.daily_transactions]
-        
-        # Calculate win rate and holding periods
-        completed_trades = []
-        position_start_dates = {}
-        
-        for t in transactions:
-            if t.transaction_type == TransactionType.BUY:
-                if t.symbol not in position_start_dates:
-                    position_start_dates[t.symbol] = []
-                position_start_dates[t.symbol].append({
-                    'date': t.date,
-                    'price': t.price,
-                    'shares': t.shares,
-                    'fees': t.fees
-                })
-            elif t.transaction_type == TransactionType.SELL and t.symbol in position_start_dates:
-                # Match FIFO for completed trades
-                while position_start_dates[t.symbol] and t.shares > 0:
-                    buy_position = position_start_dates[t.symbol][0]
-                    shares_to_sell = min(buy_position['shares'], t.shares)
-                    
-                    # Calculate profit/loss for this part of the position
-                    buy_cost = shares_to_sell * buy_position['price'] + (buy_position['fees'] * shares_to_sell / buy_position['shares'])
-                    sell_proceeds = shares_to_sell * t.price - (t.fees * shares_to_sell / t.shares)
-                    profit = sell_proceeds - buy_cost
-                    
-                    completed_trades.append({
-                        'profit': profit,
-                        'holding_period': (t.date - buy_position['date']).days
-                    })
-                    
-                    # Update remaining shares
-                    t.shares -= shares_to_sell
-                    buy_position['shares'] -= shares_to_sell
-                    
-                    if buy_position['shares'] == 0:
-                        position_start_dates[t.symbol].pop(0)
-                    
-                if not position_start_dates[t.symbol]:
-                    del position_start_dates[t.symbol]
-        
-        # Calculate win rate
-        winning_trades = len([t for t in completed_trades if t['profit'] > 0])
-        win_rate = (winning_trades / len(completed_trades) * 100) if completed_trades else 0
-        
-        # Calculate average holding period
-        avg_holding_period = (
-            sum(t['holding_period'] for t in completed_trades) / len(completed_trades)
-            if completed_trades else 0
-        )
-        
-        # Calculate Sharpe ratio
-        daily_rf_rate = (1 + risk_free_rate) ** (1/252) - 1
-        excess_returns = daily_returns - daily_rf_rate
-        sharpe_ratio = (
-            (excess_returns.mean() * 252) /
-            (excess_returns.std() * (252 ** 0.5))
-            if excess_returns.std() != 0 else 0
-        )
-        
-        return SimulationResults(
-            initial_capital=self.parameters.initial_capital,
-            final_portfolio_value=portfolio_values.iloc[-1],
-            total_return=total_return,
-            total_return_percent=total_return_pct,
-            max_drawdown=max_drawdown,
-            number_of_trades=len(transactions),
-            win_rate=win_rate,
-            avg_holding_period=avg_holding_period,
-            sharpe_ratio=sharpe_ratio,
-            transactions=transactions,
-            portfolio_values=portfolio_values,
-            cash_values=cash_values,
-            positions_values=positions_values,
-            daily_returns=daily_returns
-        )
+        """Calculate performance metrics from simulation results with numeric safeguards"""
+        try:
+            # Extract daily values using current day's prices
+            dates = [s.date for s in snapshots]
+            
+            # Safely extract values and ensure they're numeric
+            portfolio_values_raw = [float(s.total_value) for s in snapshots]
+            cash_values_raw = [float(s.cash) for s in snapshots]
+            positions_values_raw = [float(s.total_invested) for s in snapshots]
+            
+            # Create Series with proper indices
+            portfolio_values = pd.Series(portfolio_values_raw, index=dates)
+            cash_values = pd.Series(cash_values_raw, index=dates)
+            positions_values = pd.Series(positions_values_raw, index=dates)
+            
+            # Calculate daily returns using current day's values
+            daily_returns = portfolio_values.pct_change().fillna(0)
+            
+            # Get all transactions and filter out any with zero shares
+            transactions = []
+            for s in snapshots:
+                for t in s.daily_transactions:
+                    if hasattr(t, 'shares') and t.shares is not None and t.shares > 0:
+                        transactions.append(t)
+            
+            # Calculate metrics (safely with error handling)
+            try:
+                total_return = float(portfolio_values.iloc[-1]) - self.parameters.initial_capital
+            except (IndexError, TypeError):
+                total_return = 0.0
+                
+            try:
+                total_return_pct = (total_return / self.parameters.initial_capital) * 100
+            except (ZeroDivisionError, TypeError):
+                total_return_pct = 0.0
+            
+            # Calculate maximum drawdown (safely)
+            try:
+                rolling_max = portfolio_values.expanding().max()
+                drawdowns = (portfolio_values - rolling_max) / rolling_max
+                max_drawdown = abs(drawdowns.min()) * 100
+            except Exception:
+                max_drawdown = 0.0
+            
+            # Calculate win rate and holding periods (safely)
+            completed_trades = []
+            position_start_dates = {}
+            
+            for t in transactions:
+                try:
+                    if t.transaction_type == TransactionType.BUY:
+                        if t.symbol not in position_start_dates:
+                            position_start_dates[t.symbol] = []
+                        position_start_dates[t.symbol].append({
+                            'date': t.date,
+                            'price': t.price,
+                            'shares': t.shares,
+                            'fees': t.fees
+                        })
+                    elif t.transaction_type == TransactionType.SELL and t.symbol in position_start_dates:
+                        # Match FIFO for completed trades
+                        shares_to_match = t.shares
+                        while position_start_dates[t.symbol] and shares_to_match > 0:
+                            buy_position = position_start_dates[t.symbol][0]
+                            shares_sold = min(buy_position['shares'], shares_to_match)
+                            
+                            # Calculate profit/loss for this part of the position
+                            buy_cost = shares_sold * buy_position['price'] + (buy_position['fees'] * shares_sold / buy_position['shares'])
+                            sell_proceeds = shares_sold * t.price - (t.fees * shares_sold / t.shares)
+                            profit = sell_proceeds - buy_cost
+                            
+                            completed_trades.append({
+                                'profit': profit,
+                                'holding_period': (t.date - buy_position['date']).days
+                            })
+                            
+                            # Update remaining shares
+                            shares_to_match -= shares_sold
+                            buy_position['shares'] -= shares_sold
+                            
+                            if buy_position['shares'] <= 0:
+                                position_start_dates[t.symbol].pop(0)
+                        
+                        if not position_start_dates[t.symbol]:
+                            del position_start_dates[t.symbol]
+                except Exception as e:
+                    self.logger.error(f"Error processing trade for metrics: {str(e)}")
+            
+            # Calculate win rate (safely)
+            try:
+                winning_trades = len([t for t in completed_trades if t['profit'] > 0])
+                win_rate = (winning_trades / len(completed_trades) * 100) if completed_trades else 0
+            except Exception:
+                win_rate = 0.0
+            
+            # Calculate average holding period (safely)
+            try:
+                avg_holding_period = (
+                    sum(t['holding_period'] for t in completed_trades) / len(completed_trades)
+                    if completed_trades else 0
+                )
+            except Exception:
+                avg_holding_period = 0.0
+            
+            # Calculate Sharpe ratio (safely)
+            try:
+                daily_rf_rate = (1 + risk_free_rate) ** (1/252) - 1
+                excess_returns = daily_returns - daily_rf_rate
+                
+                sharpe_ratio = (
+                    (excess_returns.mean() * 252) /
+                    (excess_returns.std() * (252 ** 0.5))
+                    if excess_returns.std() != 0 else 0
+                )
+            except Exception:
+                sharpe_ratio = 0.0
+            
+            # Create SimulationResults with all numeric values validated
+            return SimulationResults(
+                initial_capital=float(self.parameters.initial_capital),
+                final_portfolio_value=float(portfolio_values.iloc[-1]) if len(portfolio_values) > 0 else 0.0,
+                total_return=float(total_return),
+                total_return_percent=float(total_return_pct),
+                max_drawdown=float(max_drawdown),
+                number_of_trades=int(len(transactions)),
+                win_rate=float(win_rate),
+                avg_holding_period=float(avg_holding_period),
+                sharpe_ratio=float(sharpe_ratio),
+                transactions=transactions,
+                portfolio_values=portfolio_values,
+                cash_values=cash_values,
+                positions_values=positions_values,
+                daily_returns=daily_returns
+            )
+        except Exception as e:
+            self.logger.error(f"Error calculating metrics: {str(e)}")
+            # Return empty results
+            empty_index = [datetime.now()]
+            return SimulationResults(
+                initial_capital=float(self.parameters.initial_capital),
+                final_portfolio_value=float(self.parameters.initial_capital),
+                total_return=0.0,
+                total_return_percent=0.0,
+                max_drawdown=0.0,
+                number_of_trades=0,
+                win_rate=0.0,
+                avg_holding_period=0.0,
+                sharpe_ratio=0.0,
+                transactions=[],
+                portfolio_values=pd.Series([self.parameters.initial_capital], index=empty_index),
+                cash_values=pd.Series([self.parameters.initial_capital], index=empty_index),
+                positions_values=pd.Series([0.0], index=empty_index),
+                daily_returns=pd.Series([0.0], index=empty_index)
+            )
 
     def run_simulation(
         self,

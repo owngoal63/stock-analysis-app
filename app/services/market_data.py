@@ -1,5 +1,5 @@
 """
-Market data service for fetching and managing stock data.
+Updated market data service for fetching and managing stock data.
 File: app/services/market_data.py
 """
 
@@ -12,6 +12,7 @@ from pathlib import Path
 import sqlite3
 import json
 from io import StringIO
+import time
 
 class MarketDataService:
     """Service for fetching and managing stock market data"""
@@ -37,6 +38,10 @@ class MarketDataService:
         self.CURRENT_DAY_CACHE_DURATION = timedelta(minutes=15)
         self.HISTORICAL_CACHE_DURATION = timedelta(days=1)
         self.COMPANY_INFO_CACHE_DURATION = timedelta(days=7)
+        
+        # Rate limiting
+        self.last_api_call = 0
+        self.MIN_API_CALL_INTERVAL = 0.5  # seconds between API calls
 
     def _init_cache_db(self):
         """Initialize SQLite database for caching"""
@@ -81,6 +86,14 @@ class MarketDataService:
                 )
         except Exception as e:
             self.logger.warning(f"Cache storage failed for key {key}: {str(e)}")
+    
+    def _rate_limit(self):
+        """Implement rate limiting for API calls"""
+        now = time.time()
+        elapsed = now - self.last_api_call
+        if elapsed < self.MIN_API_CALL_INTERVAL:
+            time.sleep(self.MIN_API_CALL_INTERVAL - elapsed)
+        self.last_api_call = time.time()
 
     def get_stock_data(
         self,
@@ -110,22 +123,91 @@ class MarketDataService:
             return cached_data, self._get_stock_metadata(symbol)
         
         try:
-            # Fetch data from yfinance
-            stock = yf.Ticker(symbol)
-            data = stock.history(start=start_date, end=end_date)
+            # Rate limit API calls
+            self._rate_limit()
+            
+            # Download data directly using download method
+            data = yf.download(
+                symbol,
+                start=start_date,
+                end=end_date + timedelta(days=1),  # Add one day to ensure end_date is included
+                progress=False
+            )
             
             if data.empty:
                 raise ValueError(f"No data available for symbol {symbol}")
             
             # Process the data
             data.index = pd.to_datetime(data.index)
-            data = data.rename(columns={
-                'Open': 'open',
-                'High': 'high',
-                'Low': 'low',
-                'Close': 'close',
-                'Volume': 'volume'
-            })
+            
+            # Handle multi-index columns if present (this happens with multiple symbols)
+            if isinstance(data.columns, pd.MultiIndex):
+                # self.logger.info(f"Handling multi-index columns for {symbol}")
+                
+                # Create a new DataFrame with single-level columns
+                processed_data = pd.DataFrame(index=data.index)
+                
+                # Map standard column names
+                column_mapping = {
+                    'Open': 'open',
+                    'High': 'high',
+                    'Low': 'low',
+                    'Close': 'close',
+                    'Volume': 'volume',
+                    'Adj Close': 'adj_close'
+                }
+                
+                # Find the symbol in the columns and extract its data
+                for col_type in ['Open', 'High', 'Low', 'Close', 'Volume', 'Adj Close']:
+                    if (col_type, symbol) in data.columns:
+                        processed_data[column_mapping[col_type]] = data[(col_type, symbol)]
+                    
+                # Check if we successfully extracted the data
+                if processed_data.empty:
+                    # Try an alternative approach
+                    # Drop the second level if it exists
+                    if isinstance(data.columns, pd.MultiIndex):
+                        data = data.droplevel(1, axis=1)
+                    
+                    # Now rename the columns
+                    data = data.rename(columns={
+                        'Open': 'open',
+                        'High': 'high',
+                        'Low': 'low',
+                        'Close': 'close',
+                        'Volume': 'volume',
+                        'Adj Close': 'adj_close'
+                    })
+                else:
+                    data = processed_data
+            else:
+                # Regular single-level columns
+                data = data.rename(columns={
+                    'Open': 'open',
+                    'High': 'high',
+                    'Low': 'low',
+                    'Close': 'close',
+                    'Volume': 'volume',
+                    'Adj Close': 'adj_close'
+                })
+            
+            # Safety check: ensure 'close' column exists
+            if 'close' not in data.columns:
+                # Try to find a suitable column
+                for col in data.columns:
+                    if 'Close' in str(col) or 'close' in str(col):
+                        data['close'] = data[col]
+                        break
+                
+                # If still not found, use Adj Close if available
+                if 'close' not in data.columns and 'Adj Close' in data.columns:
+                    data['close'] = data['Adj Close']
+                elif 'close' not in data.columns and 'adj_close' in data.columns:
+                    data['close'] = data['adj_close']
+                
+                # If we still can't find it, raise an error
+                if 'close' not in data.columns:
+                    self.logger.error(f"Could not find price data for {symbol}. Columns: {data.columns.tolist()}")
             
             # Cache the data
             cache_duration = (
@@ -150,15 +232,40 @@ class MarketDataService:
             return cached_data.iloc[0].to_dict()
         
         try:
+            # Rate limit API calls
+            self._rate_limit()
+            
+            # Initialize Ticker - this gets basic info
             stock = yf.Ticker(symbol)
-            info = stock.info
+            
+            # Handle the case where info is not available or different in structure
+            try:
+                info = stock.info
+                company_name = info.get('longName', info.get('shortName', symbol))
+                sector = info.get('sector', '')
+                industry = info.get('industry', '')
+                currency = info.get('currency', 'USD')
+                exchange = info.get('exchange', '')
+            except Exception as e:
+                self.logger.warning(f"Could not get full info for {symbol}: {str(e)}")
+                info = {}
+                # Try to get at least the company name
+                try:
+                    company_name = stock.ticker
+                except:
+                    company_name = symbol
+                sector = ''
+                industry = ''
+                currency = 'USD'
+                exchange = ''
+            
             metadata = {
                 'symbol': symbol,
-                'company_name': info.get('longName', ''),
-                'sector': info.get('sector', ''),
-                'industry': info.get('industry', ''),
-                'currency': info.get('currency', 'USD'),
-                'exchange': info.get('exchange', ''),
+                'company_name': company_name,
+                'sector': sector,
+                'industry': industry,
+                'currency': currency,
+                'exchange': exchange,
             }
             
             # Cache metadata
@@ -183,7 +290,7 @@ class MarketDataService:
 
     def get_latest_price(self, symbol: str) -> float:
         """
-        Get latest stock price
+        Get latest stock price with improved handling for newer yfinance versions
         
         Args:
             symbol: Stock ticker symbol
@@ -193,18 +300,76 @@ class MarketDataService:
         """
         cache_key = f"latest_price_{symbol}"
         
+        # Check cache first
         cached_data = self._get_cached_data(cache_key)
         if cached_data is not None:
-            return cached_data.iloc[-1]['close']
+            try:
+                return float(cached_data.iloc[-1]['close'])
+            except Exception:
+                # If there's an issue with the cached data, continue to fetch fresh data
+                pass
         
         try:
-            stock = yf.Ticker(symbol)
-            data = stock.history(period='1d')
+            # Rate limit API calls
+            self._rate_limit()
+            
+            # Method 1: Try downloading with period='1d' first
+            try:
+                data = yf.download(
+                    symbol,
+                    period='1d',  # Just get today's data
+                    progress=False,
+                    timeout=10    # Add timeout to prevent hanging
+                )
+                
+                if not data.empty:
+                    latest_price = float(data['Close'].iloc[-1])
+                    
+                    # Cache for 15 minutes
+                    self._cache_data(
+                        cache_key,
+                        pd.DataFrame({'close': [latest_price]}),
+                        self.CURRENT_DAY_CACHE_DURATION
+                    )
+                    
+                    return latest_price
+            except Exception as e:
+                self.logger.warning(f"Method 1 failed for {symbol}: {str(e)}")
+            
+            # Method 2: If that fails, try using Ticker.history
+            try:
+                ticker = yf.Ticker(symbol)
+                data = ticker.history(period='1d')
+                
+                if not data.empty:
+                    latest_price = float(data['Close'].iloc[-1])
+                    
+                    # Cache for 15 minutes
+                    self._cache_data(
+                        cache_key,
+                        pd.DataFrame({'close': [latest_price]}),
+                        self.CURRENT_DAY_CACHE_DURATION
+                    )
+                    
+                    return latest_price
+            except Exception as e:
+                self.logger.warning(f"Method 2 failed for {symbol}: {str(e)}")
+            
+            # Method 3: Last resort - get the price from a longer period
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=5)
+            
+            data = yf.download(
+                symbol,
+                start=start_date,
+                end=end_date,
+                progress=False
+            )
             
             if data.empty:
                 raise ValueError(f"No price data available for {symbol}")
             
-            latest_price = data['Close'].iloc[-1]
+            latest_price = float(data['Close'].iloc[-1])
             
             # Cache for 15 minutes
             self._cache_data(
@@ -214,7 +379,7 @@ class MarketDataService:
             )
             
             return latest_price
-            
+                
         except Exception as e:
             self.logger.error(f"Error fetching latest price for {symbol}: {str(e)}")
             raise RuntimeError(f"Failed to fetch latest price for {symbol}") from e

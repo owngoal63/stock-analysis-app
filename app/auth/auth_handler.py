@@ -211,20 +211,76 @@ class AuthHandler:
             return None
 
     def update_recommendation_params(self, user_id: str, params: Dict) -> bool:
-        """Update user's recommendation parameters"""
+        """Update user's recommendation parameters with comprehensive fixes for persistence"""
         try:
+            # Debug: View input parameters
+            print(f"Attempting to save params for user {user_id}: {params}")
+            
+            # Validate params structure
+            required_keys = ['strong_buy', 'buy', 'sell', 'strong_sell']
+            for key in required_keys:
+                if key not in params:
+                    self.logger.error(f"Missing required key {key} in recommendation params")
+                    return False
+            
+            # Convert the dictionary to a JSON string instead of using str()
+            # This is critical - str() doesn't create valid JSON that can be parsed back
+            import json
+            params_json = json.dumps(params)
+            
+            print(f"Serialized params: {params_json}")
+            
             with sqlite3.connect(self.db_path) as conn:
-                conn.execute(
+                # Check if the recommendation_params column exists
+                cursor = conn.cursor()
+                cursor.execute("PRAGMA table_info(users)")
+                columns = [col[1] for col in cursor.fetchall()]
+                
+                if 'recommendation_params' not in columns:
+                    self.logger.error("recommendation_params column not found in users table")
+                    return False
+                
+                # Update the params with proper JSON serialization
+                cursor.execute(
                     "UPDATE users SET recommendation_params = ? WHERE id = ?",
-                    (str(params), user_id)
+                    (params_json, user_id)
                 )
+                
+                # Verify the update worked
+                if cursor.rowcount == 0:
+                    self.logger.error(f"No rows updated for user {user_id}")
+                    
+                    # Debug: Check if user exists
+                    user_exists = conn.execute(
+                        "SELECT 1 FROM users WHERE id = ?", (user_id,)
+                    ).fetchone()
+                    
+                    if not user_exists:
+                        self.logger.error(f"User with id {user_id} does not exist")
+                        return False
+                
+                # Verify data was actually saved by reading it back
+                saved_params = conn.execute(
+                    "SELECT recommendation_params FROM users WHERE id = ?",
+                    (user_id,)
+                ).fetchone()
+                
+                if not saved_params:
+                    self.logger.error(f"Failed to read back saved params for user {user_id}")
+                    return False
+                    
+                print(f"Saved params read back: {saved_params[0]}")
+                
                 return True
+                
         except Exception as e:
             self.logger.error(f"Error updating recommendation parameters: {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
             return False
 
     def get_current_user(self) -> Optional[User]:
-        """Get currently authenticated user"""
+        """Get currently authenticated user with fixed reloading"""
         if 'auth_token' not in st.session_state:
             return None
 
@@ -232,6 +288,19 @@ class AuthHandler:
         if not user_id:
             del st.session_state.auth_token
             return None
+        
+        # Check if we need to force reload the user
+        force_reload = st.session_state.get('force_reload_user', False)
+        if force_reload:
+            # Clear the flag
+            st.session_state.force_reload_user = False
+            # Clear any cached user
+            if 'current_user' in st.session_state:
+                del st.session_state.current_user
+
+        # Use cached user if available and not forcing reload
+        if not force_reload and 'current_user' in st.session_state:
+            return st.session_state.current_user
 
         try:
             with sqlite3.connect(self.db_path) as conn:
@@ -241,18 +310,45 @@ class AuthHandler:
                 ).fetchone()
                 
                 if result:
-                    return User(
+                    # Debug info
+                    print(f"Loading user from database. ID: {result[0]}, Email: {result[1]}")
+                    
+                    # Check if recommendation_params exists in the result
+                    has_params = len(result) > 7 and result[7] is not None
+                    print(f"Has recommendation_params: {has_params}")
+                    if has_params:
+                        print(f"Raw recommendation_params: {result[7]}")
+                    
+                    # Handle recommendation_params parsing
+                    recommendation_params = None
+                    if has_params:
+                        try:
+                            import json
+                            recommendation_params = json.loads(result[7])
+                        except json.JSONDecodeError:
+                            try:
+                                recommendation_params = eval(result[7])
+                            except:
+                                recommendation_params = None
+                    
+                    user = User(
                         id=result[0],
                         email=result[1],
                         created_at=datetime.fromisoformat(result[3]),
                         last_login=datetime.fromisoformat(result[4]) if result[4] else None,
                         watchlist=eval(result[5]) if result[5] else [],
                         preferences=eval(result[6]) if result[6] else {},
-                        recommendation_params=eval(result[7]) if result[7] else User.recommendation_params.default_factory()
+                        recommendation_params=recommendation_params
                     )
+                    
+                    # Cache the user in session state
+                    st.session_state.current_user = user
+                    return user
                 return None
         except Exception as e:
             st.error(f"Error getting current user: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
             return None
 
     def logout_user(self):

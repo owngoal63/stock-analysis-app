@@ -57,7 +57,7 @@ class User:
             except:
                 self.preferences = {}
                 
-        # Ensure recommendation_params is always a dict with default values
+        # Updated handling for recommendation_params
         default_params = {
             'strong_buy': {
                 'trend_strength': 0.5,
@@ -81,14 +81,27 @@ class User:
             }
         }
         
+        # Improved handling of recommendation_params to properly parse JSON
         if self.recommendation_params is None:
             self.recommendation_params = default_params
         elif isinstance(self.recommendation_params, str):
             try:
-                self.recommendation_params = eval(self.recommendation_params)
-            except:
-                self.recommendation_params = default_params
+                # Try to parse as JSON first (most reliable)
+                import json
+                self.recommendation_params = json.loads(self.recommendation_params.strip())
+            except json.JSONDecodeError:
+                try:
+                    # Fall back to eval for backward compatibility
+                    self.recommendation_params = eval(self.recommendation_params)
+                except:
+                    # Use defaults as final fallback
+                    self.recommendation_params = default_params
+                    
         # Ensure all required keys exist
         for key in default_params:
             if key not in self.recommendation_params:
                 self.recommendation_params[key] = default_params[key]
+            # Also ensure all required subkeys exist
+            for subkey in default_params[key]:
+                if subkey not in self.recommendation_params[key]:
+                    self.recommendation_params[key][subkey] = default_params[key][subkey]

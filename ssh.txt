@@ -1,0 +1,8 @@
+http://ec2-13-42-17-138.eu-west-2.compute.amazonaws.com:8501/
+
+ssh -i C:\Users\Gordon\Documents\aws-ec2\kenton.pem ubuntu@ec2-13-42-17-138.eu-west-2.compute.amazonaws.com
+
+source venv/bin/activate
+
+(venv) ubuntu@ip-172-31-34-191:~/stock-analysis-app$ sudo systemctl stop streamlit
+(venv) ubuntu@ip-172-31-34-191:~/stock-analysis-app$ sudo systemctl start streamlit

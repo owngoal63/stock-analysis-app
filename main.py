@@ -39,7 +39,7 @@ def init_services():
     )
 
 def display_analysis_results(results: list):
-    """Display watchlist analysis results in a formatted table"""
+    """Display watchlist analysis results in a formatted table with type safety"""
     st.subheader("Watchlist Analysis")
     
     if not results:
@@ -63,8 +63,25 @@ def display_analysis_results(results: list):
         'Strong Sell': 4
     }
     
+    # Ensure all results have the expected fields and correct types
+    processed_results = []
+    for r in valid_results:
+        try:
+            # Convert all numeric values to Python float/int
+            processed_r = {
+                'symbol': str(r.get('symbol', '')),
+                'company_name': str(r.get('company_name', r.get('symbol', ''))),
+                'recommendation': str(r.get('recommendation', 'Neutral')),
+                'current_price': float(r.get('current_price', 0.0)),
+                'price_change_pct': float(r.get('price_change_pct', 0.0)),
+                'trend_strength': float(r.get('trend_strength', 0.0)),
+            }
+            processed_results.append(processed_r)
+        except (ValueError, TypeError) as e:
+            print(f"Error processing result {r.get('symbol', 'unknown')}: {str(e)}")
+    
     sorted_results = sorted(
-        valid_results,
+        processed_results,
         key=lambda x: recommendation_order.get(x['recommendation'], 99)
     )
     
@@ -83,14 +100,21 @@ def display_analysis_results(results: list):
     # Display Strong Buy recommendations
     with strong_buy_col:
         st.markdown("### 🟢 Strong Buy")
-        st.markdown(f"*Min Strength: {params['strong_buy']['trend_strength']}*")
+        trend_strength_val = params['strong_buy']['trend_strength']
+        st.markdown(f"*Min Strength: {trend_strength_val}*")
         for stock in groups['Strong Buy']:
             with st.container():
+                symbol = stock['symbol']
+                price = stock['current_price']
+                change = stock['price_change_pct']
+                strength = stock['trend_strength']
+                
+                # Use explicit format strings with Python primitives
                 st.markdown(
                     f"""
-                    **{stock['symbol']}**  
-                    ${stock['current_price']:.2f} ({stock['price_change_pct']:.1f}%)  
-                    Strength: {stock['trend_strength']:.2f}
+                    **{symbol}**  
+                    ${price:.2f} ({change:.1f}%)  
+                    Strength: {strength:.2f}
                     """
                 )
                 st.markdown("---")
@@ -98,14 +122,20 @@ def display_analysis_results(results: list):
     # Display Buy recommendations
     with buy_col:
         st.markdown("### 🟢 Buy")
-        st.markdown(f"*Min Strength: {params['buy']['trend_strength']}*")
+        trend_strength_val = params['buy']['trend_strength']
+        st.markdown(f"*Min Strength: {trend_strength_val}*")
         for stock in groups['Buy']:
             with st.container():
+                symbol = stock['symbol']
+                price = stock['current_price']
+                change = stock['price_change_pct']
+                strength = stock['trend_strength']
+                
                 st.markdown(
                     f"""
-                    **{stock['symbol']}**  
-                    ${stock['current_price']:.2f} ({stock['price_change_pct']:.1f}%)  
-                    Strength: {stock['trend_strength']:.2f}
+                    **{symbol}**  
+                    ${price:.2f} ({change:.1f}%)  
+                    Strength: {strength:.2f}
                     """
                 )
                 st.markdown("---")
@@ -116,11 +146,16 @@ def display_analysis_results(results: list):
         st.markdown("*No threshold*")
         for stock in groups['Neutral']:
             with st.container():
+                symbol = stock['symbol']
+                price = stock['current_price']
+                change = stock['price_change_pct']
+                strength = stock['trend_strength']
+                
                 st.markdown(
                     f"""
-                    **{stock['symbol']}**  
-                    ${stock['current_price']:.2f} ({stock['price_change_pct']:.1f}%)  
-                    Strength: {stock['trend_strength']:.2f}
+                    **{symbol}**  
+                    ${price:.2f} ({change:.1f}%)  
+                    Strength: {strength:.2f}
                     """
                 )
                 st.markdown("---")
@@ -128,14 +163,20 @@ def display_analysis_results(results: list):
     # Display Sell recommendations
     with sell_col:
         st.markdown("### 🔴 Sell")
-        st.markdown(f"*Max Strength: {params['sell']['trend_strength']}*")
+        trend_strength_val = params['sell']['trend_strength']
+        st.markdown(f"*Max Strength: {trend_strength_val}*")
         for stock in groups['Sell']:
             with st.container():
+                symbol = stock['symbol']
+                price = stock['current_price']
+                change = stock['price_change_pct']
+                strength = stock['trend_strength']
+                
                 st.markdown(
                     f"""
-                    **{stock['symbol']}**  
-                    ${stock['current_price']:.2f} ({stock['price_change_pct']:.1f}%)  
-                    Strength: {stock['trend_strength']:.2f}
+                    **{symbol}**  
+                    ${price:.2f} ({change:.1f}%)  
+                    Strength: {strength:.2f}
                     """
                 )
                 st.markdown("---")
@@ -143,14 +184,20 @@ def display_analysis_results(results: list):
     # Display Strong Sell recommendations
     with strong_sell_col:
         st.markdown("### 🔴 Strong Sell")
-        st.markdown(f"*Max Strength: {params['strong_sell']['trend_strength']}*")
+        trend_strength_val = params['strong_sell']['trend_strength']
+        st.markdown(f"*Max Strength: {trend_strength_val}*")
         for stock in groups['Strong Sell']:
             with st.container():
+                symbol = stock['symbol']
+                price = stock['current_price']
+                change = stock['price_change_pct']
+                strength = stock['trend_strength']
+                
                 st.markdown(
                     f"""
-                    **{stock['symbol']}**  
-                    ${stock['current_price']:.2f} ({stock['price_change_pct']:.1f}%)  
-                    Strength: {stock['trend_strength']:.2f}
+                    **{symbol}**  
+                    ${price:.2f} ({change:.1f}%)  
+                    Strength: {strength:.2f}
                     """
                 )
                 st.markdown("---")

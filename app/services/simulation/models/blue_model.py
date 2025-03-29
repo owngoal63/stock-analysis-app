@@ -99,16 +99,7 @@ class BlueModel:
         price: float
     ) -> Optional[Transaction]:
         """
-        Execute a buy or sell transaction
-        
-        Args:
-            date: Transaction date
-            symbol: Stock symbol
-            signal: Signal type
-            price: Current stock price
-            
-        Returns:
-            Optional[Transaction]: Executed transaction or None
+        Execute a buy or sell transaction with zero-share prevention
         """
         try:
             current_position = self.positions.get(symbol)
@@ -128,22 +119,29 @@ class BlueModel:
             if signal in [SignalType.STRONG_BUY, SignalType.BUY]:
                 transaction_type = TransactionType.BUY
                 shares = self._calculate_max_shares(price, amount)
+                
+                # ZERO SHARE PREVENTION: Skip if shares would be zero or negative
                 if shares <= 0:
                     return None
                     
             else:  # SELL or STRONG_SELL
                 if not current_position or current_position.shares <= 0:
                     return None
+                    
                 transaction_type = TransactionType.SELL
-                shares = int(min(
-                    current_position.shares,
-                    (amount / price)
-                ))
+                
+                # Calculate shares to sell - ensure at least 1 share is sold
+                amount_shares = max(1, int((amount / current_position_value) * current_position.shares))
+                shares = min(current_position.shares, amount_shares)
+                
+                # ZERO SHARE PREVENTION: Ensure at least 1 share is sold if selling
+                if shares <= 0:
+                    return None
             
             # Calculate fees
             fee = (shares * price) * (self.parameters.transaction_fee_percent / 100)
             
-            # Create transaction
+            # Create transaction with verified positive share count
             transaction = Transaction(
                 date=date,
                 symbol=symbol,

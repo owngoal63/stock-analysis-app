@@ -1,0 +1,16 @@
+[Unit]
+Description=Streamlit Stock Analysis Application
+After=network.target
+
+[Service]
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/stock_analysis_app
+Environment="PATH=/home/ubuntu/stock_analysis_app/venv/bin"
+ExecStart=/home/ubuntu/stock_analysis_app/venv/bin/streamlit run main.py --server.port=8501 --server.address=0.0.0.0
+
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

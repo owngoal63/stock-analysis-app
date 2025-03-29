@@ -15,15 +15,15 @@ class TechnicalAnalysisService:
         self.logger = logging.getLogger(__name__)
 
     def calculate_macd(self, 
-                      data: pd.DataFrame, 
-                      fast_period: int = 12, 
-                      slow_period: int = 26, 
-                      signal_period: int = 9) -> Dict[str, pd.Series]:
+                    data: pd.DataFrame, 
+                    fast_period: int = 12, 
+                    slow_period: int = 26, 
+                    signal_period: int = 9) -> Dict[str, pd.Series]:
         """
         Calculate MACD indicator for given price data
         
         Args:
-            data: DataFrame with 'close' price column
+            data: DataFrame with price data
             fast_period: Period for fast EMA
             slow_period: Period for slow EMA
             signal_period: Period for signal line
@@ -32,9 +32,29 @@ class TechnicalAnalysisService:
             Dict containing MACD line, signal line, and histogram
         """
         try:
-            # Validate input data
-            if 'close' not in data.columns:
-                raise ValueError("Input DataFrame must contain 'close' column")
+            # Validate input data and normalize column names
+            price_column = None
+            
+            # Handle different possible column names
+            if 'close' in data.columns:
+                price_column = 'close'
+            elif 'Close' in data.columns:
+                price_column = 'Close'
+                # Create a lower-case alias for consistency
+                data['close'] = data['Close']
+            else:
+                # Try to find any column that might contain price data
+                potential_columns = ['adj close', 'Adj Close', 'Price', 'price', 'Last', 'last']
+                for col in potential_columns:
+                    if col in data.columns:
+                        data['close'] = data[col]
+                        price_column = col
+                        break
+                
+                # If we still don't have a price column, raise an error
+                if price_column is None:
+                    self.logger.error(f"No valid price column found. Columns: {data.columns.tolist()}")
+                    raise ValueError("Input DataFrame must contain a price column ('close', 'Close', etc.)")
             
             # Calculate EMAs
             fast_ema = data['close'].ewm(span=fast_period, adjust=False).mean()
@@ -57,6 +77,14 @@ class TechnicalAnalysisService:
             
         except Exception as e:
             self.logger.error(f"Error calculating MACD: {str(e)}")
+            # Return empty Series with same index as input data
+            if not data.empty:
+                empty_series = pd.Series([0] * len(data), index=data.index)
+                return {
+                    'macd_line': empty_series,
+                    'signal_line': empty_series,
+                    'histogram': empty_series
+                }
             raise
 
     def calculate_rsi(self, 

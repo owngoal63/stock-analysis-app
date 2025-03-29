@@ -4,14 +4,15 @@ File: app/pages/watchlist.py
 """
 
 import streamlit as st
-from datetime import datetime
+from datetime import datetime, timedelta
+import pandas as pd
 from app.services.market_data import MarketDataService
 from app.services.technical_analysis import TechnicalAnalysisService
 from app.services.watchlist_analyzer import WatchlistAnalyzer
 from app.auth.auth_handler import AuthHandler
 
 def render_watchlist_page():
-    """Render the watchlist management page"""
+    """Render the watchlist management page with improved price display"""
     try:
         st.title("My Watchlist")
         
@@ -37,13 +38,28 @@ def render_watchlist_page():
                 if symbol:
                     if symbol not in st.session_state.watchlist:
                         # Verify stock exists by trying to get its price
-                        price = market_data.get_latest_price(symbol)
-                        st.session_state.watchlist.append(symbol)
-                        auth_handler.update_watchlist(
-                            current_user.id,
-                            st.session_state.watchlist
-                        )
-                        st.session_state.add_status = f"Added {symbol} to watchlist!"
+                        try:
+                            # Get stock data to verify stock exists
+                            end_date = datetime.now()
+                            start_date = end_date - timedelta(days=5)
+                            
+                            price_data, _ = market_data.get_stock_data(
+                                symbol,
+                                start_date,
+                                end_date
+                            )
+                            
+                            if not price_data.empty:
+                                st.session_state.watchlist.append(symbol)
+                                auth_handler.update_watchlist(
+                                    current_user.id,
+                                    st.session_state.watchlist
+                                )
+                                st.session_state.add_status = f"Added {symbol} to watchlist!"
+                            else:
+                                st.session_state.add_status = f"Could not find stock data for {symbol}"
+                        except Exception as e:
+                            st.session_state.add_status = f"Error verifying stock: {str(e)}"
                     else:
                         st.session_state.add_status = f"{symbol} is already in your watchlist!"
                 else:
@@ -103,10 +119,33 @@ def render_watchlist_page():
                     st.write(f"**{symbol}**")
                 with col2:
                     try:
-                        price = market_data.get_latest_price(symbol)
-                        st.write(f"${price:.2f}")
-                    except:
+                        # Try to get latest price with improved fallback
+                        try:
+                            # Try get_latest_price first
+                            price = market_data.get_latest_price(symbol)
+                            if isinstance(price, pd.Series):
+                                price = price.iloc[-1]
+                            price = float(price)
+                            st.write(f"${price:.2f}")
+                        except Exception as e:
+                            # Fallback to using get_stock_data
+                            end_date = datetime.now()
+                            start_date = end_date - timedelta(days=5)
+                            
+                            price_data, _ = market_data.get_stock_data(
+                                symbol,
+                                start_date,
+                                end_date
+                            )
+                            
+                            if not price_data.empty and 'close' in price_data.columns:
+                                price = float(price_data['close'].iloc[-1])
+                                st.write(f"${price:.2f}")
+                            else:
+                                st.write("Price unavailable")
+                    except Exception as e:
                         st.write("Price unavailable")
+                        print(f"Error getting price for {symbol}: {str(e)}")
                 with col3:
                     if st.button("Remove", key=f"remove_{symbol}", on_click=remove_stock, args=(symbol,)):
                         pass  # Logic handled in callback
