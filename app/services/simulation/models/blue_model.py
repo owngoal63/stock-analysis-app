@@ -1,16 +1,17 @@
 """
-BLUE model trading strategy implementation.
+BLUE model trading strategy implementation with transaction sequence counting.
 File: app/services/simulation/models/blue_model.py
 """
 
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Set
 import logging
 import pandas as pd
+import uuid
 
 from app.services.simulation.models.parameters import SimulationParameters
 from app.services.simulation.models.trading import (
-    Position, Transaction, PortfolioSnapshot, SignalType, TransactionType
+    Position, Transaction, PortfolioSnapshot, SignalType, TransactionType, TransactionRecord
 )
 from app.services.market_data import MarketDataService
 from app.services.technical_analysis import TechnicalAnalysisService
@@ -35,6 +36,13 @@ class BlueModel:
         self.positions: Dict[str, Position] = {}
         self.transactions: List[Transaction] = []
         self.snapshots: List[PortfolioSnapshot] = []
+        self.transaction_records: List[TransactionRecord] = []
+        
+        # Track processed transactions to prevent duplicates
+        self.processed_transaction_signatures: Set[str] = set()
+        
+        # Transaction sequence counter for ensuring correct display order
+        self.transaction_counter = 0
     
     def _calculate_max_shares(self, price: float, available_cash: float) -> int:
         """
@@ -91,6 +99,25 @@ class BlueModel:
         
         return 0.0
     
+    def _get_transaction_signature(self, date: datetime, symbol: str, transaction_type: TransactionType, shares: int, price: float) -> str:
+        """
+        Generate a unique signature for a transaction to detect duplicates
+        
+        Args:
+            date: Transaction date
+            symbol: Stock symbol
+            transaction_type: Buy or Sell
+            shares: Number of shares
+            price: Share price
+            
+        Returns:
+            str: Unique transaction signature
+        """
+        date_str = date.strftime('%Y-%m-%d')
+        type_value = transaction_type.value if hasattr(transaction_type, 'value') else str(transaction_type)
+        # Use a simple consistent format
+        return f"{date_str}_{symbol}_{type_value}_{shares}"
+    
     def _execute_transaction(
         self,
         date: datetime,
@@ -99,7 +126,7 @@ class BlueModel:
         price: float
     ) -> Optional[Transaction]:
         """
-        Execute a buy or sell transaction with zero-share prevention
+        Execute a buy or sell transaction with zero-share prevention and duplicate detection
         """
         try:
             current_position = self.positions.get(symbol)
@@ -137,6 +164,20 @@ class BlueModel:
                 # ZERO SHARE PREVENTION: Ensure at least 1 share is sold if selling
                 if shares <= 0:
                     return None
+                    
+            # DUPLICATE TRANSACTION PREVENTION: Check if this exact transaction has already been processed
+            transaction_signature = self._get_transaction_signature(
+                date, symbol, transaction_type, shares, price
+            )
+            
+            if transaction_signature in self.processed_transaction_signatures:
+                self.logger.warning(
+                    f"Duplicate transaction detected and prevented: {transaction_signature}"
+                )
+                return None
+                
+            # Add signature to processed set to prevent future duplicates
+            self.processed_transaction_signatures.add(transaction_signature)
             
             # Calculate fees
             fee = (shares * price) * (self.parameters.transaction_fee_percent / 100)
@@ -180,6 +221,31 @@ class BlueModel:
                 
                 self.cash += transaction.total_amount
             
+            # Calculate the investment value after this transaction
+            investment_value = sum(p.market_value for p in self.positions.values())
+            
+            # Increment transaction sequence counter
+            self.transaction_counter += 1
+            
+            # Create a transaction record with sequence number to ensure correct display order
+            record = TransactionRecord(
+                date=transaction.date,
+                symbol=transaction.symbol,
+                type=transaction.transaction_type.value,
+                signal=transaction.signal_type.value,
+                shares=transaction.shares,
+                price=transaction.price,
+                fees=transaction.fees,
+                total=transaction.total_amount,
+                available_capital=self.cash,
+                investment_value=investment_value,
+                portfolio_total=self.cash + investment_value,
+                sequence_num=self.transaction_counter  # Add sequence number for ordering
+            )
+            
+            # Add the record to our list of transaction records
+            self.transaction_records.append(record)
+            
             self.transactions.append(transaction)
             return transaction
             
@@ -210,11 +276,20 @@ class BlueModel:
                 last_price=pos.last_price  # This should be current day's price
             )
 
+        # Get the transaction records that were created during this batch of transactions
+        # (i.e., transaction records created since the last snapshot)
+        start_idx = len(self.transaction_records) - len(daily_transactions) if daily_transactions else len(self.transaction_records)
+        # Be extra cautious - if start_idx is out of range, use empty list
+        current_transaction_records = (
+            self.transaction_records[start_idx:] if start_idx < len(self.transaction_records) else []
+        )
+
         snapshot = PortfolioSnapshot(
             date=date,
             cash=self.cash,
             positions=current_positions,
-            daily_transactions=daily_transactions
+            daily_transactions=daily_transactions,
+            transaction_records=current_transaction_records
         )
         self.snapshots.append(snapshot)
 
